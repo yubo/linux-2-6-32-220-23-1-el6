@@ -9,8 +9,7 @@
  *              2 of the License, or (at your option) any later version.
  *
  * Changes:
- *	Shunmin Zhu  <jianghe.zsm@taobao.com>
- *	Yi Yang      <specific@gmail.com>      statistical variables U32 to U64
+ *
  */
 
 #define KMSG_COMPONENT "IPVS"

@@ -19,12 +19,7 @@
  * and others. Many code here is taken from IP MASQ code of kernel 2.2.
  *
  * Changes:
- *             Yi Yang       <specific@gmail.com>
- *             Wen Li        <steel.mental@gmail.com>
- *             Yaoguang Sun  <sunyaoguang@gmail.com>
- *             Jiaming Wu    <pukong.wjm@taobao.com>
  *
- *             Modify connection manager to support FULLNAT (a new packet forwarding method)
  */
 
 #define KMSG_COMPONENT "IPVS"
@@ -964,6 +959,9 @@ static void ip_vs_conn_expire(unsigned long data)
 			tmp_skb = NULL;
 		}
 
+		if (cp->indev != NULL)
+			dev_put(cp->indev);
+
 		kmem_cache_free(ip_vs_conn_cachep, cp);
 		return;
 	}
@@ -1089,9 +1087,15 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
 	skb_queue_head_init(&cp->ack_skb);
 	atomic_set(&cp->syn_retry_max, 0);
 	if (is_synproxy_on == 1 && skb != NULL) {
+		unsigned int tcphoff;
 
-		th = skb_header_pointer(skb, ip_hdr(skb)->ihl * 4,
-					sizeof(_tcph), &_tcph);
+#ifdef CONFIG_IP_VS_IPV6
+		if (af == AF_INET6)
+			tcphoff = sizeof(struct ipv6hdr);
+		else
+#endif
+			tcphoff = ip_hdr(skb)->ihl * 4;
+		th = skb_header_pointer(skb, tcphoff, sizeof(_tcph), &_tcph);
 		if (th == NULL) {
 			IP_VS_ERR_RL("%s(): get tcphdr failed\n", __func__);
 			ip_vs_conn_del(cp);
@@ -1105,6 +1109,8 @@ struct ip_vs_conn *ip_vs_conn_new(int af, int proto,
 		/* Save ack_seq - 1 */
 		cp->syn_proxy_seq.init_seq =
 		    htonl((__u32) ((htonl(th->ack_seq) - 1)));
+		/* Save ack_seq */
+		cp->fnat_seq.fdata_seq = htonl(th->ack_seq);
 		/* Use IP_VS_TCP_S_SYN_SENT for syn */
 		cp->timeout = pp->timeout_table[cp->state =
 						IP_VS_TCP_S_SYN_SENT];

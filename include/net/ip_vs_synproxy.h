@@ -105,7 +105,7 @@ extern int ip_vs_synproxy_snat_handler(struct tcphdr *tcph,
 #define IP_VS_SYNPROXY_SACK_DEFAULT  		1
 #define IP_VS_SYNPROXY_WSCALE_DEFAULT  		0
 #define IP_VS_SYNPROXY_TIMESTAMP_DEFAULT  	0
-#define IP_VS_SYNPROXY_DEFER_DEFAULT   		1
+#define IP_VS_SYNPROXY_DEFER_DEFAULT   		0
 #define IP_VS_SYNPROXY_DUP_ACK_DEFAULT     	10
 #define IP_VS_SYNPROXY_SKB_STORE_DEFAULT     	3
 #define IP_VS_SYNPROXY_CONN_REUSE_DEFAULT	1

@@ -234,27 +234,12 @@ struct ip_vs_seq {
 /*
  *	IPVS statistics objects
  */
-struct ip_vs_estimator {
-	struct list_head list;
-
-	u64 last_inbytes;
-	u64 last_outbytes;
-	u64 last_conns;
-	u64 last_inpkts;
-	u64 last_outpkts;
-
-	u32 cps;
-	u32 inpps;
-	u32 outpps;
-	u64 inbps;
-	u64 outbps;
-};
-
 struct ip_vs_stats {
-	struct ip_vs_stats_user ustats;	/* statistics */
-	struct ip_vs_estimator est;	/* estimator */
-
-	spinlock_t lock;	/* spin lock */
+	__u64 conns;		/* connections scheduled */
+	__u64 inpkts;		/* incoming packets */
+	__u64 outpkts;		/* outgoing packets */
+	__u64 inbytes;		/* incoming bytes */
+	__u64 outbytes;		/* outgoing bytes */
 };
 
 struct dst_entry;
@@ -436,6 +421,11 @@ struct ip_vs_conn {
 	/* for RST */
 	__u32 rs_end_seq;	/* end seq(seq+datalen) of the last ack packet from rs */
 	__u32 rs_ack_seq;	/* ack seq of the last ack packet from rs */
+
+	/* L2 direct response xmit */
+	struct net_device	*indev;
+	unsigned char		src_hwaddr[MAX_ADDR_LEN];
+	unsigned char		dst_hwaddr[MAX_ADDR_LEN];
 };
 
 /*
@@ -508,7 +498,7 @@ struct ip_vs_service {
 	__u32 num_laddrs;	/* number of local ip address */
 	struct list_head *curr_laddr;	/* laddr data list head */
 
-	struct ip_vs_stats stats;	/* statistics for the service */
+	struct ip_vs_stats *stats;	/* Use per-cpu statistics for the service */
 	struct ip_vs_app *inc;	/* bind conns to this app inc */
 
 	/* for scheduling */
@@ -533,7 +523,7 @@ struct ip_vs_dest {
 	atomic_t weight;	/* server weight */
 
 	atomic_t refcnt;	/* reference counter */
-	struct ip_vs_stats stats;	/* statistics */
+	struct ip_vs_stats *stats;	/* Use per-cpu statistics for destination server */
 
 	/* connection counters and thresholds */
 	atomic_t activeconns;	/* active connections */
@@ -651,7 +641,7 @@ struct ip_vs_app {
 	void (*timeout_change) (struct ip_vs_app * app, int flags);
 };
 
-#define TCPOPT_ADDR  200
+#define TCPOPT_ADDR  254
 #define TCPOLEN_ADDR 8		/* |opcode|size|ip+port| = 1 + 1 + 6 */
 
 /*
@@ -665,6 +655,22 @@ struct ip_vs_tcpo_addr {
 	__u32 addr;
 };
 
+#ifdef CONFIG_IP_VS_IPV6
+#define TCPOPT_ADDR_V6	253
+#define TCPOLEN_ADDR_V6	20	/* |opcode|size|port|ipv6| = 1 + 1 + 2 + 16 */
+
+/*
+ * insert client ip in tcp option, for IPv6
+ * must be 4 bytes alignment.
+ */
+struct ip_vs_tcpo_addr_v6 {
+	__u8	opcode;
+	__u8	opsize;
+	__be16	port;
+	struct in6_addr addr;
+};
+#endif
+
 /*
  * statistics for FULLNAT and SYNPROXY
  * in /proc/net/ip_vs_ext_stats
@@ -672,6 +678,7 @@ struct ip_vs_tcpo_addr {
 enum {
 	FULLNAT_ADD_TOA_OK = 1,
 	FULLNAT_ADD_TOA_FAIL_LEN,
+	FULLNAT_ADD_TOA_HEAD_FULL,
 	FULLNAT_ADD_TOA_FAIL_MEM,
 	FULLNAT_ADD_TOA_FAIL_PROTO,
 	FULLNAT_CONN_REUSED,
@@ -695,8 +702,23 @@ enum {
 	SYNPROXY_CONN_REUSED_CLOSEWAIT,
 	SYNPROXY_CONN_REUSED_LASTACK,
 	DEFENCE_IP_FRAG_DROP,
+	DEFENCE_IP_FRAG_GATHER,
 	DEFENCE_TCP_DROP,
 	DEFENCE_UDP_DROP,
+	FAST_XMIT_REJECT,
+	FAST_XMIT_PASS,
+	FAST_XMIT_SKB_COPY,
+	FAST_XMIT_NO_MAC,
+	FAST_XMIT_SYNPROXY_SAVE,
+	FAST_XMIT_DEV_LOST,
+	RST_IN_SYN_SENT,
+	RST_OUT_SYN_SENT,
+	RST_IN_ESTABLISHED,
+	RST_OUT_ESTABLISHED,
+	GRO_PASS,
+	LRO_REJECT,
+	XMIT_UNEXPECTED_MTU,
+	CONN_SCHED_UNREACH,
 	IP_VS_EXT_STAT_LAST
 };
 
@@ -919,7 +941,7 @@ extern int sysctl_ip_vs_expire_nodest_conn;
 extern int sysctl_ip_vs_expire_quiescent_template;
 extern int sysctl_ip_vs_sync_threshold[2];
 extern int sysctl_ip_vs_nat_icmp_send;
-extern struct ip_vs_stats ip_vs_stats;
+extern struct ip_vs_stats *ip_vs_stats;
 extern const struct ctl_path net_vs_ctl_path[];
 extern int sysctl_ip_vs_timestamp_remove_entry;
 extern int sysctl_ip_vs_mss_adjust_entry;
@@ -932,6 +954,7 @@ extern int sysctl_ip_vs_frag_drop_entry;
 extern int sysctl_ip_vs_tcp_drop_entry;
 extern int sysctl_ip_vs_udp_drop_entry;
 extern int sysctl_ip_vs_conn_expire_tcp_rst;
+extern int sysctl_ip_vs_fast_xmit;
 
 extern struct ip_vs_service *ip_vs_service_get(int af, __u32 fwmark,
 					       __u16 protocol,
@@ -977,13 +1000,20 @@ extern int stop_sync_thread(int state);
 extern void ip_vs_sync_conn(struct ip_vs_conn *cp);
 
 /*
- *      IPVS rate estimator prototypes (from ip_vs_est.c)
+ *      IPVS statistic prototypes (from ip_vs_stats.c)
  */
-extern int ip_vs_estimator_init(void);
-extern void ip_vs_estimator_cleanup(void);
-extern void ip_vs_new_estimator(struct ip_vs_stats *stats);
-extern void ip_vs_kill_estimator(struct ip_vs_stats *stats);
-extern void ip_vs_zero_estimator(struct ip_vs_stats *stats);
+#define ip_vs_stats_cpu(stats,cpu)  \
+	(*per_cpu_ptr((stats), (cpu)))
+
+#define ip_vs_stats_this_cpu(stats) \
+	(*this_cpu_ptr((stats)))
+
+extern int ip_vs_new_stats(struct ip_vs_stats** p);
+extern void ip_vs_del_stats(struct ip_vs_stats* p);
+extern void ip_vs_zero_stats(struct ip_vs_stats* stats);
+extern void ip_vs_in_stats(struct ip_vs_conn *cp, struct sk_buff *skb);
+extern void ip_vs_out_stats(struct ip_vs_conn *cp, struct sk_buff *skb);
+extern void ip_vs_conn_stats(struct ip_vs_conn *cp, struct ip_vs_service *svc);
 
 /*
  *	Lookup route table

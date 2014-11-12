@@ -1,20 +1,3 @@
-/*
- * ip_vs_synproxy.c:   SYNPROXY for defence synflood attack, based on tcp syncookies
- *
- * Authors:     
- * 		Jian Chen  <jian.chen1225@gmail.com>
- * 		Yan Tian   <tianyan.7c00@gmail.com>
- * 		Wen Li     <steel.mental@gmail.com>
- * 		Jiaming Wu <pukong.wjm@taobao.com>
- *
- *              This program is free software; you can redistribute it and/or
- *              modify it under the terms of the GNU General Public License
- *              as published by the Free Software Foundation; either version
- *              2 of the License, or (at your option) any later version.
- *
- * Changes:
- */
-
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/tcp.h>
@@ -180,7 +163,12 @@ syn_proxy_reuse_skb(int af, struct sk_buff *skb, struct ip_vs_synproxy_opt *opt)
 
 	/* get cookie */
 	skb_set_transport_header(skb, tcphoff);
-	isn = ip_vs_synproxy_cookie_v4_init_sequence(skb, opt);
+#ifdef CONFIG_IP_VS_IPV6
+	if (af == AF_INET6)
+		isn = ip_vs_synproxy_cookie_v6_init_sequence(skb, opt);
+	else
+#endif
+		isn = ip_vs_synproxy_cookie_v4_init_sequence(skb, opt);
 
 	/* Set syn-ack flag
 	 * the tcp opt in syn/ack packet : 00010010 = 0x12
@@ -304,7 +292,10 @@ ip_vs_synproxy_syn_rcv(int af, struct sk_buff *skb,
 	/* reuse skb here: deal with tcp options, exchage ip, port. */
 	syn_proxy_reuse_skb(af, skb, &tcp_opt);
 
-	skb->pkt_type = PACKET_OUTGOING;
+	if (unlikely(skb->dev == NULL)) {
+		IP_VS_ERR_RL("%s: skb->dev is null !!!\n", __func__);
+		goto syn_rcv_out;
+	}
 
 	/* Send the packet out */
 	if (likely(skb->dev->type == ARPHRD_ETHER)) {
@@ -318,12 +309,22 @@ ip_vs_synproxy_syn_rcv(int af, struct sk_buff *skb,
 		memcpy(t_hwaddr, (eth->h_dest), ETH_ALEN);
 		memcpy((eth->h_dest), (eth->h_source), ETH_ALEN);
 		memcpy((eth->h_source), t_hwaddr, ETH_ALEN);
+		skb->pkt_type = PACKET_OUTGOING;
+	} else if (skb->dev->type == ARPHRD_LOOPBACK) {
+		/* set link layer */
+		if (likely(skb_mac_header_was_set(skb))) {
+			skb->data = skb_mac_header(skb);
+			skb->len += sizeof(struct ethhdr);
+		} else {
+			skb_push(skb, sizeof(struct ethhdr));
+			skb_reset_mac_header(skb);
+		}
 	}
 
 	dev_queue_xmit(skb);
 	*verdict = NF_STOLEN;
 	return 0;
-      syn_rcv_out:
+syn_rcv_out:
 	/* Drop the packet when all things are right also,
 	 * then we needn't to kfree_skb() */
 	*verdict = NF_DROP;
@@ -414,7 +415,7 @@ syn_proxy_send_rs_syn(int af, const struct tcphdr *th,
 
 	/* Set tcp hdr */
 	new_th->source = th->source;
-	new_th->dest = cp->dest->port;
+	new_th->dest = th->dest;
 	new_th->seq = htonl(ntohl(th->seq) - 1);
 	new_th->ack_seq = 0;
 	*(((__u16 *) new_th) + 6) =
@@ -438,13 +439,16 @@ syn_proxy_send_rs_syn(int af, const struct tcphdr *th,
 	if (af == AF_INET6) {
 		struct ipv6hdr *ack_iph = ipv6_hdr(skb);
 		struct ipv6hdr *iph =
-		    (struct ipv6hdr *)skb_push(syn_skb, sizeof(struct iphdr));
+		    (struct ipv6hdr *)skb_push(syn_skb, sizeof(struct ipv6hdr));
 
 		tcphoff = sizeof(struct ipv6hdr);
 		skb_reset_network_header(syn_skb);
 		memcpy(&iph->saddr, &ack_iph->saddr, sizeof(struct in6_addr));
 		memcpy(&iph->daddr, &ack_iph->daddr, sizeof(struct in6_addr));
 
+		iph->version = 6;
+		iph->nexthdr = NEXTHDR_TCP;
+		iph->payload_len = htons(tcp_hdr_size);
 		iph->hop_limit = IPV6_DEFAULT_HOPLIMIT;
 
 		new_th->check = 0;
@@ -489,6 +493,33 @@ syn_proxy_send_rs_syn(int af, const struct tcphdr *th,
 		cp->syn_skb = skb_copy(syn_skb, GFP_ATOMIC);
 		atomic_set(&cp->syn_retry_max, sysctl_ip_vs_synproxy_syn_retry);
 	}
+
+	/* Save info for fast_response_xmit */
+	if(sysctl_ip_vs_fast_xmit && skb->dev &&
+				likely(skb->dev->type == ARPHRD_ETHER) &&
+				skb_mac_header_was_set(skb)) {
+		struct ethhdr *eth = (struct ethhdr *)skb_mac_header(skb);
+
+		if(likely(cp->indev == NULL)) {
+			cp->indev = skb->dev;
+			dev_hold(cp->indev);
+		}
+
+		if (unlikely(cp->indev != skb->dev)) {
+			dev_put(cp->indev);
+			cp->indev = skb->dev;
+			dev_hold(cp->indev);
+		}
+
+		memcpy(cp->src_hwaddr, eth->h_source, ETH_ALEN);
+		memcpy(cp->dst_hwaddr, eth->h_dest, ETH_ALEN);
+		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_SYNPROXY_SAVE);
+		IP_VS_DBG_RL("syn_proxy_send_rs_syn netdevice:%s\n",
+						netdev_name(skb->dev));
+	}
+
+	/* count in the syn packet */
+	ip_vs_in_stats(cp, skb);
 
 	/* If xmit failed, syn_skb will be freed correctly. */
 	cp->packet_xmit(syn_skb, cp, pp);
@@ -606,6 +637,9 @@ ip_vs_synproxy_ack_rcv(int af, struct sk_buff *skb, struct tcphdr *th,
 			IP_VS_ERR_RL("syn_proxy_send_rs_syn failed!\n");
 		}
 
+		/* count in the ack packet (STOLEN by synproxy) */
+		ip_vs_in_stats(*cpp, skb);
+
 		/*
 		 * Active sesion timer, and dec refcnt.
 		 * Also stole the skb, and let caller return immediately.
@@ -635,7 +669,7 @@ syn_proxy_filter_opt_outin(struct tcphdr *th, struct ip_vs_seq *sp_seq)
 	ptr = (unsigned char *)(th + 1);
 
 	/* Fast path for timestamp-only option */
-	if (length == TCPOLEN_TSTAMP_ALIGNED * 4
+	if (length == TCPOLEN_TSTAMP_ALIGNED
 	    && *(__be32 *) ptr == __constant_htonl((TCPOPT_NOP << 24)
 						   | (TCPOPT_NOP << 16)
 						   | (TCPOPT_TIMESTAMP << 8) |
@@ -859,6 +893,11 @@ __syn_proxy_reuse_conn(struct ip_vs_conn *cp,
 	/* Save ack_seq - 1 */
 	cp->syn_proxy_seq.init_seq = htonl((__u32) ((htonl(th->ack_seq) - 1)));
 	/* don't change delta here, so original flow can still be valid */
+
+	/* Save ack_seq */
+	cp->fnat_seq.fdata_seq = ntohl(th->ack_seq);
+
+	cp->fnat_seq.init_seq = 0;
 
 	/* Clean dup ack cnt */
 	atomic_set(&cp->dup_ack_cnt, 0);

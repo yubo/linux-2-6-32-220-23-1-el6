@@ -22,9 +22,6 @@
  *	Paul `Rusty' Russell		properly handle non-linear skbs
  *	Harald Welte			don't use nfcache
  *
- *	Wen Li       <steel.mental@gmail.com>
- *	Jiaming Wu   <pukong.wjm@taobao.com>   support FULLNAT and SYNPROXY
- *
  */
 
 #define KMSG_COMPONENT "IPVS"
@@ -98,64 +95,6 @@ void ip_vs_init_hash_table(struct list_head *table, int rows)
 {
 	while (--rows >= 0)
 		INIT_LIST_HEAD(&table[rows]);
-}
-
-static inline void ip_vs_in_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
-{
-	struct ip_vs_dest *dest = cp->dest;
-	if (dest && (dest->flags & IP_VS_DEST_F_AVAILABLE)) {
-		spin_lock(&dest->stats.lock);
-		dest->stats.ustats.inpkts++;
-		dest->stats.ustats.inbytes += skb->len;
-		spin_unlock(&dest->stats.lock);
-
-		spin_lock(&dest->svc->stats.lock);
-		dest->svc->stats.ustats.inpkts++;
-		dest->svc->stats.ustats.inbytes += skb->len;
-		spin_unlock(&dest->svc->stats.lock);
-
-		spin_lock(&ip_vs_stats.lock);
-		ip_vs_stats.ustats.inpkts++;
-		ip_vs_stats.ustats.inbytes += skb->len;
-		spin_unlock(&ip_vs_stats.lock);
-	}
-}
-
-static inline void ip_vs_out_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
-{
-	struct ip_vs_dest *dest = cp->dest;
-	if (dest && (dest->flags & IP_VS_DEST_F_AVAILABLE)) {
-		spin_lock(&dest->stats.lock);
-		dest->stats.ustats.outpkts++;
-		dest->stats.ustats.outbytes += skb->len;
-		spin_unlock(&dest->stats.lock);
-
-		spin_lock(&dest->svc->stats.lock);
-		dest->svc->stats.ustats.outpkts++;
-		dest->svc->stats.ustats.outbytes += skb->len;
-		spin_unlock(&dest->svc->stats.lock);
-
-		spin_lock(&ip_vs_stats.lock);
-		ip_vs_stats.ustats.outpkts++;
-		ip_vs_stats.ustats.outbytes += skb->len;
-		spin_unlock(&ip_vs_stats.lock);
-	}
-}
-
-static inline void
-ip_vs_conn_stats(struct ip_vs_conn *cp, struct ip_vs_service *svc)
-{
-	spin_lock(&cp->dest->stats.lock);
-	cp->dest->stats.ustats.conns++;
-	spin_unlock(&cp->dest->stats.lock);
-
-	spin_lock(&svc->stats.lock);
-	svc->stats.ustats.conns++;
-	spin_unlock(&svc->stats.lock);
-
-	spin_lock(&ip_vs_stats.lock);
-	ip_vs_stats.ustats.conns++;
-	spin_unlock(&ip_vs_stats.lock);
 }
 
 static inline int
@@ -519,6 +458,8 @@ int ip_vs_leave(struct ip_vs_service *svc, struct sk_buff *skb,
 #endif
 		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_PORT_UNREACH, 0);
 
+	IP_VS_INC_ESTATS(ip_vs_esmib, CONN_SCHED_UNREACH);
+
 	return NF_DROP;
 }
 
@@ -804,7 +745,7 @@ handle_response(int af, struct sk_buff *skb, struct ip_vs_protocol *pp,
 	/*
 	 * Syn-proxy step 3 logic: receive syn-ack from rs.
 	 */
-	if (ip_vs_synproxy_synack_rcv(skb, cp, pp, ihl, &ret) == 0) {
+	if (pp->protocol == IPPROTO_TCP && ip_vs_synproxy_synack_rcv(skb, cp, pp, ihl, &ret) == 0) {
 		goto out;
 	}
 
@@ -1363,11 +1304,19 @@ ip_vs_pre_routing(unsigned int hooknum, struct sk_buff *skb,
 	ip_vs_fill_iphdr(af, skb_network_header(skb), &iph);
 
 	/* drop all ip fragment except ospf */
-	if ((sysctl_ip_vs_frag_drop_entry == 1)
+	if ((af == AF_INET)
 	    && (ip_hdr(skb)->frag_off & htons(IP_MF | IP_OFFSET))
 	    && (iph.protocol != IPPROTO_OSPF)) {
-		IP_VS_INC_ESTATS(ip_vs_esmib, DEFENCE_IP_FRAG_DROP);
-		return NF_DROP;
+		if(sysctl_ip_vs_frag_drop_entry == 1) {
+			IP_VS_INC_ESTATS(ip_vs_esmib, DEFENCE_IP_FRAG_DROP);
+			return NF_DROP;
+		} else {
+			if (ip_vs_gather_frags(skb, IP_DEFRAG_VS_IN))
+				return NF_STOLEN;
+
+			IP_VS_INC_ESTATS(ip_vs_esmib, DEFENCE_IP_FRAG_GATHER);
+			ip_vs_fill_iphdr(af, skb_network_header(skb), &iph);
+		}
 	}
 
 	/* drop udp packet which send to tcp-vip */
@@ -1398,8 +1347,8 @@ static struct nf_hook_ops ip_vs_ops[] __read_mostly = {
 	 .hook = ip_vs_in,
 	 .owner = THIS_MODULE,
 	 .pf = PF_INET,
-	 .hooknum = NF_INET_LOCAL_IN,
-	 .priority = 100,
+	 .hooknum = NF_INET_PRE_ROUTING,
+	 .priority = NF_IP_PRI_CONNTRACK - 1,
 	 },
 	/* After packet filtering, change source only for VS/NAT */
 	{
@@ -1432,7 +1381,7 @@ static struct nf_hook_ops ip_vs_ops[] __read_mostly = {
 	 .owner = THIS_MODULE,
 	 .pf = PF_INET,
 	 .hooknum = NF_INET_PRE_ROUTING,
-	 .priority = NF_IP_PRI_CONNTRACK - 1,
+	 .priority = NF_IP_PRI_CONNTRACK - 2,
 	 },
 #ifdef CONFIG_IP_VS_IPV6
 	/* After packet filtering, forward packet through VS/DR, VS/TUN,
@@ -1442,8 +1391,8 @@ static struct nf_hook_ops ip_vs_ops[] __read_mostly = {
 	 .hook = ip_vs_in,
 	 .owner = THIS_MODULE,
 	 .pf = PF_INET6,
-	 .hooknum = NF_INET_LOCAL_IN,
-	 .priority = 100,
+	 .hooknum = NF_INET_PRE_ROUTING,
+	 .priority = NF_IP6_PRI_CONNTRACK - 1,
 	 },
 	/* After packet filtering, change source only for VS/NAT */
 	{
@@ -1476,7 +1425,7 @@ static struct nf_hook_ops ip_vs_ops[] __read_mostly = {
 	 .owner = THIS_MODULE,
 	 .pf = PF_INET6,
 	 .hooknum = NF_INET_PRE_ROUTING,
-	 .priority = NF_IP6_PRI_CONNTRACK - 1,
+	 .priority = NF_IP6_PRI_CONNTRACK - 2,
 	 },
 #endif
 };
@@ -1488,12 +1437,10 @@ static int __init ip_vs_init(void)
 {
 	int ret;
 
-	ip_vs_estimator_init();
-
 	ret = ip_vs_control_init();
 	if (ret < 0) {
 		pr_err("can't setup control.\n");
-		goto cleanup_estimator;
+		goto out_err;
 	}
 
 	ip_vs_protocol_init();
@@ -1519,15 +1466,14 @@ static int __init ip_vs_init(void)
 	pr_info("ipvs loaded.\n");
 	return ret;
 
-      cleanup_conn:
+cleanup_conn:
 	ip_vs_conn_cleanup();
-      cleanup_app:
+cleanup_app:
 	ip_vs_app_cleanup();
-      cleanup_protocol:
+cleanup_protocol:
 	ip_vs_protocol_cleanup();
 	ip_vs_control_cleanup();
-      cleanup_estimator:
-	ip_vs_estimator_cleanup();
+out_err:
 	return ret;
 }
 
@@ -1538,7 +1484,6 @@ static void __exit ip_vs_cleanup(void)
 	ip_vs_app_cleanup();
 	ip_vs_protocol_cleanup();
 	ip_vs_control_cleanup();
-	ip_vs_estimator_cleanup();
 	pr_info("ipvs unloaded.\n");
 }
 
