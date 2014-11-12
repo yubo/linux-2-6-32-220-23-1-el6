@@ -598,7 +598,7 @@ extern int inet6_hash_connect(struct inet_timewait_death_row *death_row,
 /*
  * reassembly.c
  */
-extern const struct proto_ops inet6_stream_ops;
+extern struct proto_ops inet6_stream_ops;
 extern const struct proto_ops inet6_dgram_ops;
 
 struct group_source_req;
@@ -647,6 +647,12 @@ extern void ipv6_sysctl_unregister(void);
 extern int ipv6_static_sysctl_register(void);
 extern void ipv6_static_sysctl_unregister(void);
 #endif
+
+/* public func in tcp_ipv6.c */
+extern struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+                                         struct request_sock *req,
+                                         struct dst_entry *dst);
+extern struct inet_connection_sock_af_ops ipv6_specific;
 
 #endif /* __KERNEL__ */
 #endif /* _NET_IPV6_H */

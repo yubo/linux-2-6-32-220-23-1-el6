@@ -503,7 +503,7 @@ int inet6_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 
 EXPORT_SYMBOL(inet6_ioctl);
 
-const struct proto_ops inet6_stream_ops = {
+struct proto_ops inet6_stream_ops = {
 	.family		   = PF_INET6,
 	.owner		   = THIS_MODULE,
 	.release	   = inet6_release,
@@ -528,6 +528,7 @@ const struct proto_ops inet6_stream_ops = {
 	.compat_getsockopt = compat_sock_common_getsockopt,
 #endif
 };
+EXPORT_SYMBOL(inet6_stream_ops);
 
 const struct proto_ops inet6_dgram_ops = {
 	.family		   = PF_INET6,
