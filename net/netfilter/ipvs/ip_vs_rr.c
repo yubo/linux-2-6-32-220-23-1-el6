@@ -27,13 +27,11 @@
 
 #include <net/ip_vs.h>
 
-
 static int ip_vs_rr_init_svc(struct ip_vs_service *svc)
 {
 	svc->sched_data = &svc->destinations;
 	return 0;
 }
-
 
 static int ip_vs_rr_update_svc(struct ip_vs_service *svc)
 {
@@ -41,12 +39,11 @@ static int ip_vs_rr_update_svc(struct ip_vs_service *svc)
 	return 0;
 }
 
-
 /*
  * Round-Robin Scheduling
  */
-static struct ip_vs_dest *
-ip_vs_rr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
+static struct ip_vs_dest *ip_vs_rr_schedule(struct ip_vs_service *svc,
+					    const struct sk_buff *skb)
 {
 	struct list_head *p, *q;
 	struct ip_vs_dest *dest;
@@ -75,7 +72,7 @@ ip_vs_rr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 	IP_VS_ERR_RL("RR: no destination available\n");
 	return NULL;
 
-  out:
+      out:
 	svc->sched_data = q;
 	write_unlock(&svc->sched_lock);
 	IP_VS_DBG_BUF(6, "RR: server %s:%u "
@@ -87,15 +84,14 @@ ip_vs_rr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 	return dest;
 }
 
-
 static struct ip_vs_scheduler ip_vs_rr_scheduler = {
-	.name =			"rr",			/* name */
-	.refcnt =		ATOMIC_INIT(0),
-	.module =		THIS_MODULE,
-	.n_list =		LIST_HEAD_INIT(ip_vs_rr_scheduler.n_list),
-	.init_service =		ip_vs_rr_init_svc,
-	.update_service =	ip_vs_rr_update_svc,
-	.schedule =		ip_vs_rr_schedule,
+	.name = "rr",		/* name */
+	.refcnt = ATOMIC_INIT(0),
+	.module = THIS_MODULE,
+	.n_list = LIST_HEAD_INIT(ip_vs_rr_scheduler.n_list),
+	.init_service = ip_vs_rr_init_svc,
+	.update_service = ip_vs_rr_update_svc,
+	.schedule = ip_vs_rr_schedule,
 };
 
 static int __init ip_vs_rr_init(void)

@@ -39,9 +39,7 @@
 
 #include <net/ip_vs.h>
 
-
-static inline unsigned int
-ip_vs_nq_dest_overhead(struct ip_vs_dest *dest)
+static inline unsigned int ip_vs_nq_dest_overhead(struct ip_vs_dest *dest)
 {
 	/*
 	 * We only use the active connection number in the cost
@@ -50,12 +48,11 @@ ip_vs_nq_dest_overhead(struct ip_vs_dest *dest)
 	return atomic_read(&dest->activeconns) + 1;
 }
 
-
 /*
  *	Weighted Least Connection scheduling
  */
-static struct ip_vs_dest *
-ip_vs_nq_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
+static struct ip_vs_dest *ip_vs_nq_schedule(struct ip_vs_service *svc,
+					    const struct sk_buff *skb)
 {
 	struct ip_vs_dest *dest, *least = NULL;
 	unsigned int loh = 0, doh;
@@ -64,11 +61,11 @@ ip_vs_nq_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 
 	/*
 	 * We calculate the load of each dest server as follows:
-	 *	(server expected overhead) / dest->weight
+	 *      (server expected overhead) / dest->weight
 	 *
 	 * Remember -- no floats in kernel mode!!!
 	 * The comparison of h1*w2 > h2*w1 is equivalent to that of
-	 *		  h1/w1 > h2/w2
+	 *                h1/w1 > h2/w2
 	 * if every weight is larger than zero.
 	 *
 	 * The server with weight=0 is quiesced and will not receive any
@@ -103,7 +100,7 @@ ip_vs_nq_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 		return NULL;
 	}
 
-  out:
+      out:
 	IP_VS_DBG_BUF(6, "NQ: server %s:%u "
 		      "activeconns %d refcnt %d weight %d overhead %d\n",
 		      IP_VS_DBG_ADDR(svc->af, &least->addr), ntohs(least->port),
@@ -114,16 +111,13 @@ ip_vs_nq_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 	return least;
 }
 
-
-static struct ip_vs_scheduler ip_vs_nq_scheduler =
-{
-	.name =			"nq",
-	.refcnt =		ATOMIC_INIT(0),
-	.module =		THIS_MODULE,
-	.n_list =		LIST_HEAD_INIT(ip_vs_nq_scheduler.n_list),
-	.schedule =		ip_vs_nq_schedule,
+static struct ip_vs_scheduler ip_vs_nq_scheduler = {
+	.name = "nq",
+	.refcnt = ATOMIC_INIT(0),
+	.module = THIS_MODULE,
+	.n_list = LIST_HEAD_INIT(ip_vs_nq_scheduler.n_list),
+	.schedule = ip_vs_nq_schedule,
 };
-
 
 static int __init ip_vs_nq_init(void)
 {

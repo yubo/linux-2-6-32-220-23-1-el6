@@ -9,7 +9,8 @@
  *              2 of the License, or (at your option) any later version.
  *
  * Changes:
- *
+ *	Shunmin Zhu  <jianghe.zsm@taobao.com>
+ *	Yi Yang      <specific@gmail.com>      statistical variables U32 to U64
  */
 
 #define KMSG_COMPONENT "IPVS"
@@ -48,7 +49,6 @@
   * A lot code is taken from net/sched/estimator.c
  */
 
-
 static void estimation_timer(unsigned long arg);
 
 static LIST_HEAD(est_list);
@@ -59,10 +59,10 @@ static void estimation_timer(unsigned long arg)
 {
 	struct ip_vs_estimator *e;
 	struct ip_vs_stats *s;
-	u32 n_conns;
-	u32 n_inpkts, n_outpkts;
+	u64 n_conns;
+	u64 n_inpkts, n_outpkts;
 	u64 n_inbytes, n_outbytes;
-	u32 rate;
+	u64 rate;
 
 	spin_lock(&est_lock);
 	list_for_each_entry(e, &est_list, list) {
@@ -76,34 +76,34 @@ static void estimation_timer(unsigned long arg)
 		n_outbytes = s->ustats.outbytes;
 
 		/* scaled by 2^10, but divided 2 seconds */
-		rate = (n_conns - e->last_conns)<<9;
+		rate = (n_conns - e->last_conns) << 9;
 		e->last_conns = n_conns;
-		e->cps += ((long)rate - (long)e->cps)>>2;
-		s->ustats.cps = (e->cps+0x1FF)>>10;
+		e->cps += ((long)rate - (long)e->cps) >> 2;
+		s->ustats.cps = (e->cps + 0x1FF) >> 10;
 
-		rate = (n_inpkts - e->last_inpkts)<<9;
+		rate = (n_inpkts - e->last_inpkts) << 9;
 		e->last_inpkts = n_inpkts;
-		e->inpps += ((long)rate - (long)e->inpps)>>2;
-		s->ustats.inpps = (e->inpps+0x1FF)>>10;
+		e->inpps += ((long)rate - (long)e->inpps) >> 2;
+		s->ustats.inpps = (e->inpps + 0x1FF) >> 10;
 
-		rate = (n_outpkts - e->last_outpkts)<<9;
+		rate = (n_outpkts - e->last_outpkts) << 9;
 		e->last_outpkts = n_outpkts;
-		e->outpps += ((long)rate - (long)e->outpps)>>2;
-		s->ustats.outpps = (e->outpps+0x1FF)>>10;
+		e->outpps += ((long)rate - (long)e->outpps) >> 2;
+		s->ustats.outpps = (e->outpps + 0x1FF) >> 10;
 
-		rate = (n_inbytes - e->last_inbytes)<<4;
+		rate = (n_inbytes - e->last_inbytes) << 4;
 		e->last_inbytes = n_inbytes;
-		e->inbps += ((long)rate - (long)e->inbps)>>2;
-		s->ustats.inbps = (e->inbps+0xF)>>5;
+		e->inbps += ((long)rate - (long)e->inbps) >> 2;
+		s->ustats.inbps = (e->inbps + 0xF) >> 5;
 
-		rate = (n_outbytes - e->last_outbytes)<<4;
+		rate = (n_outbytes - e->last_outbytes) << 4;
 		e->last_outbytes = n_outbytes;
-		e->outbps += ((long)rate - (long)e->outbps)>>2;
-		s->ustats.outbps = (e->outbps+0xF)>>5;
+		e->outbps += ((long)rate - (long)e->outbps) >> 2;
+		s->ustats.outbps = (e->outbps + 0xF) >> 5;
 		spin_unlock(&s->lock);
 	}
 	spin_unlock(&est_lock);
-	mod_timer(&est_timer, jiffies + 2*HZ);
+	mod_timer(&est_timer, jiffies + 2 * HZ);
 }
 
 void ip_vs_new_estimator(struct ip_vs_stats *stats)
@@ -113,19 +113,19 @@ void ip_vs_new_estimator(struct ip_vs_stats *stats)
 	INIT_LIST_HEAD(&est->list);
 
 	est->last_conns = stats->ustats.conns;
-	est->cps = stats->ustats.cps<<10;
+	est->cps = stats->ustats.cps << 10;
 
 	est->last_inpkts = stats->ustats.inpkts;
-	est->inpps = stats->ustats.inpps<<10;
+	est->inpps = stats->ustats.inpps << 10;
 
 	est->last_outpkts = stats->ustats.outpkts;
-	est->outpps = stats->ustats.outpps<<10;
+	est->outpps = stats->ustats.outpps << 10;
 
 	est->last_inbytes = stats->ustats.inbytes;
-	est->inbps = stats->ustats.inbps<<5;
+	est->inbps = (u64) (stats->ustats.inbps) << 5;
 
 	est->last_outbytes = stats->ustats.outbytes;
-	est->outbps = stats->ustats.outbps<<5;
+	est->outbps = (u64) (stats->ustats.outbps) << 5;
 
 	spin_lock_bh(&est_lock);
 	list_add(&est->list, &est_list);

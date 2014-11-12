@@ -10,6 +10,9 @@
  *              2 of the License, or (at your option) any later version.
  *
  * Changes:
+ *	Yi Yang      <specific@gmail.com>
+ *	Shunmin Zhu  <jianghe.zsm@taobao.com>
+ *	Jiaming Wu   <pukong.wjm@taobao.com>  support FULLNAT
  *
  */
 
@@ -17,20 +20,20 @@
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
 #include <linux/kernel.h>
-#include <linux/tcp.h>                  /* for tcphdr */
+#include <linux/tcp.h>		/* for tcphdr */
 #include <net/ip.h>
-#include <net/tcp.h>                    /* for csum_tcpudp_magic */
+#include <net/tcp.h>		/* for csum_tcpudp_magic */
 #include <net/udp.h>
-#include <net/icmp.h>                   /* for icmp_send */
-#include <net/route.h>                  /* for ip_route_output */
+#include <net/icmp.h>		/* for icmp_send */
+#include <net/route.h>		/* for ip_route_output */
 #include <net/ipv6.h>
 #include <net/ip6_route.h>
 #include <linux/icmpv6.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
+#include <linux/netfilter_ipv6.h>
 
 #include <net/ip_vs.h>
-
 
 /*
  *      Destination cache to speed up outgoing route lookup
@@ -46,8 +49,8 @@ __ip_vs_dst_set(struct ip_vs_dest *dest, u32 rtos, struct dst_entry *dst)
 	dst_release(old_dst);
 }
 
-static inline struct dst_entry *
-__ip_vs_dst_check(struct ip_vs_dest *dest, u32 rtos, u32 cookie)
+static inline struct dst_entry *__ip_vs_dst_check(struct ip_vs_dest *dest,
+						  u32 rtos, u32 cookie)
 {
 	struct dst_entry *dst = dest->dst_cache;
 
@@ -64,10 +67,9 @@ __ip_vs_dst_check(struct ip_vs_dest *dest, u32 rtos, u32 cookie)
 	return dst;
 }
 
-static struct rtable *
-__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
+static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
 {
-	struct rtable *rt;			/* Route to the other host */
+	struct rtable *rt;	/* Route to the other host */
 	struct ip_vs_dest *dest = cp->dest;
 
 	if (dest) {
@@ -77,16 +79,17 @@ __ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
 			struct flowi fl = {
 				.oif = 0,
 				.nl_u = {
-					.ip4_u = {
-						.daddr = dest->addr.ip,
-						.saddr = 0,
-						.tos = rtos, } },
+					 .ip4_u = {
+						   .daddr = dest->addr.ip,
+						   .saddr = 0,
+						   .tos = rtos,}},
 			};
 
 			if (ip_route_output_key(&init_net, &rt, &fl)) {
 				spin_unlock(&dest->dst_lock);
-				IP_VS_DBG_RL("ip_route_output error, dest: %pI4\n",
-					     &dest->addr.ip);
+				IP_VS_DBG_RL
+				    ("ip_route_output error, dest: %pI4\n",
+				     &dest->addr.ip);
 				return NULL;
 			}
 			__ip_vs_dst_set(dest, rtos, dst_clone(&rt->u.dst));
@@ -99,10 +102,10 @@ __ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
 		struct flowi fl = {
 			.oif = 0,
 			.nl_u = {
-				.ip4_u = {
-					.daddr = cp->daddr.ip,
-					.saddr = 0,
-					.tos = rtos, } },
+				 .ip4_u = {
+					   .daddr = cp->daddr.ip,
+					   .saddr = 0,
+					   .tos = rtos,}},
 		};
 
 		if (ip_route_output_key(&init_net, &rt, &fl)) {
@@ -115,11 +118,31 @@ __ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
 	return rt;
 }
 
-#ifdef CONFIG_IP_VS_IPV6
-static struct rt6_info *
-__ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
+struct rtable *ip_vs_get_rt(union nf_inet_addr *addr, u32 rtos)
 {
-	struct rt6_info *rt;			/* Route to the other host */
+	struct rtable *rt;	/* Route to the other host */
+
+	struct flowi fl = {
+		.oif = 0,
+		.nl_u = {
+			 .ip4_u = {
+				   .daddr = addr->ip,
+				   .saddr = 0,
+				   .tos = rtos,}},
+	};
+
+	if (ip_route_output_key(&init_net, &rt, &fl)) {
+		IP_VS_DBG_RL("ip_route_output error, dest: %pI4\n", &addr->ip);
+		return NULL;
+	}
+
+	return rt;
+}
+
+#ifdef CONFIG_IP_VS_IPV6
+static struct rt6_info *__ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
+{
+	struct rt6_info *rt;	/* Route to the other host */
 	struct ip_vs_dest *dest = cp->dest;
 
 	if (dest) {
@@ -129,22 +152,23 @@ __ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
 			struct flowi fl = {
 				.oif = 0,
 				.nl_u = {
-					.ip6_u = {
-						.daddr = dest->addr.in6,
-						.saddr = {
-							.s6_addr32 =
-								{ 0, 0, 0, 0 },
-						},
-					},
-				},
+					 .ip6_u = {
+						   .daddr = dest->addr.in6,
+						   .saddr = {
+							     .s6_addr32 =
+							     {0, 0, 0, 0},
+							     },
+						   },
+					 },
 			};
 
 			rt = (struct rt6_info *)ip6_route_output(&init_net,
 								 NULL, &fl);
 			if (!rt) {
 				spin_unlock(&dest->dst_lock);
-				IP_VS_DBG_RL("ip6_route_output error, dest: %pI6\n",
-					     &dest->addr.in6);
+				IP_VS_DBG_RL
+				    ("ip6_route_output error, dest: %pI6\n",
+				     &dest->addr.in6);
 				return NULL;
 			}
 			__ip_vs_dst_set(dest, 0, dst_clone(&rt->u.dst));
@@ -157,13 +181,13 @@ __ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
 		struct flowi fl = {
 			.oif = 0,
 			.nl_u = {
-				.ip6_u = {
-					.daddr = cp->daddr.in6,
-					.saddr = {
-						.s6_addr32 = { 0, 0, 0, 0 },
-					},
-				},
-			},
+				 .ip6_u = {
+					   .daddr = cp->daddr.in6,
+					   .saddr = {
+						     .s6_addr32 = {0, 0, 0, 0},
+						     },
+					   },
+				 },
 		};
 
 		rt = (struct rt6_info *)ip6_route_output(&init_net, NULL, &fl);
@@ -176,14 +200,38 @@ __ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
 
 	return rt;
 }
-#endif
 
+struct rt6_info *ip_vs_get_rt_v6(union nf_inet_addr *addr)
+{
+	struct rt6_info *rt;	/* Route to the other host */
+
+	struct flowi fl = {
+		.oif = 0,
+		.nl_u = {
+			 .ip6_u = {
+				   .daddr = addr->in6,
+				   .saddr = {
+					     .s6_addr32 = {0, 0, 0, 0},
+					     },
+				   },
+			 },
+	};
+
+	rt = (struct rt6_info *)ip6_route_output(&init_net, NULL, &fl);
+	if (!rt) {
+		IP_VS_DBG_RL("ip6_route_output error, dest: %pI6\n",
+			     &addr->in6);
+		return NULL;
+	}
+
+	return rt;
+}
+#endif
 
 /*
  *	Release dest->dst_cache before a dest is removed
  */
-void
-ip_vs_dst_reset(struct ip_vs_dest *dest)
+void ip_vs_dst_reset(struct ip_vs_dest *dest)
 {
 	struct dst_entry *old_dst;
 
@@ -200,6 +248,476 @@ do {							\
 		(rt)->u.dst.dev, dst_output);		\
 } while (0)
 
+/*
+ * Packet has been made sufficiently writable in caller
+ * - inout: 1=in->out, 0=out->in
+ */
+static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
+			   struct ip_vs_conn *cp, int inout)
+{
+	struct iphdr *iph = ip_hdr(skb);
+	unsigned int icmp_offset = iph->ihl * 4;
+	struct icmphdr *icmph = (struct icmphdr *)(skb_network_header(skb) +
+						   icmp_offset);
+	struct iphdr *ciph = (struct iphdr *)(icmph + 1);
+	__u32 fullnat = (IP_VS_FWD_METHOD(cp) == IP_VS_CONN_F_FULLNAT);
+
+	if (fullnat) {
+		if (inout) {
+			iph->daddr = cp->caddr.ip;
+			ciph->saddr = cp->caddr.ip;
+		} else {
+			iph->saddr = cp->laddr.ip;
+			ciph->daddr = cp->laddr.ip;
+		}
+	}
+
+	if (inout) {
+		iph->saddr = cp->vaddr.ip;
+		ip_send_check(iph);
+		ciph->daddr = cp->vaddr.ip;
+		ip_send_check(ciph);
+	} else {
+		iph->daddr = cp->daddr.ip;
+		ip_send_check(iph);
+		ciph->saddr = cp->daddr.ip;
+		ip_send_check(ciph);
+	}
+
+	/* the TCP/UDP port */
+	if (IPPROTO_TCP == ciph->protocol || IPPROTO_UDP == ciph->protocol) {
+		__be16 *ports = (void *)ciph + ciph->ihl * 4;
+
+		if (fullnat) {
+			if (inout)
+				ports[0] = cp->cport;
+			else
+				ports[1] = cp->lport;
+		}
+
+		if (inout)
+			ports[1] = cp->vport;
+		else
+			ports[0] = cp->dport;
+	}
+
+	/* And finally the ICMP checksum */
+	icmph->checksum = 0;
+	icmph->checksum = ip_vs_checksum_complete(skb, icmp_offset);
+	skb->ip_summed = CHECKSUM_UNNECESSARY;
+
+	if (inout)
+		IP_VS_DBG_PKT(11, pp, skb, (void *)ciph - (void *)iph,
+			      "Forwarding altered outgoing ICMP");
+	else
+		IP_VS_DBG_PKT(11, pp, skb, (void *)ciph - (void *)iph,
+			      "Forwarding altered incoming ICMP");
+}
+
+#ifdef CONFIG_IP_VS_IPV6
+static void ip_vs_nat_icmp_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+			      struct ip_vs_conn *cp, int inout)
+{
+	struct ipv6hdr *iph = ipv6_hdr(skb);
+	unsigned int icmp_offset = sizeof(struct ipv6hdr);
+	struct icmp6hdr *icmph = (struct icmp6hdr *)(skb_network_header(skb) +
+						     icmp_offset);
+	struct ipv6hdr *ciph = (struct ipv6hdr *)(icmph + 1);
+	__u32 fullnat = (IP_VS_FWD_METHOD(cp) == IP_VS_CONN_F_FULLNAT);
+
+	if (fullnat) {
+		if (inout) {
+			iph->daddr = cp->caddr.in6;
+			ciph->saddr = cp->caddr.in6;
+		} else {
+			iph->saddr = cp->laddr.in6;
+			ciph->daddr = cp->laddr.in6;
+		}
+	}
+
+	if (inout) {
+		iph->saddr = cp->vaddr.in6;
+		ciph->daddr = cp->vaddr.in6;
+	} else {
+		iph->daddr = cp->daddr.in6;
+		ciph->saddr = cp->daddr.in6;
+	}
+
+	/* the TCP/UDP port */
+	if (IPPROTO_TCP == ciph->nexthdr || IPPROTO_UDP == ciph->nexthdr) {
+		__be16 *ports = (void *)ciph + sizeof(struct ipv6hdr);
+
+		if (fullnat) {
+			if (inout)
+				ports[0] = cp->cport;
+			else
+				ports[1] = cp->lport;
+		}
+
+		if (inout)
+			ports[1] = cp->vport;
+		else
+			ports[0] = cp->dport;
+	}
+
+	/* And finally the ICMP checksum */
+	icmph->icmp6_cksum = 0;
+	/* TODO IPv6: is this correct for ICMPv6? */
+	ip_vs_checksum_complete(skb, icmp_offset);
+	skb->ip_summed = CHECKSUM_UNNECESSARY;
+
+	if (inout)
+		IP_VS_DBG_PKT(11, pp, skb, (void *)ciph - (void *)iph,
+			      "Forwarding altered outgoing ICMPv6");
+	else
+		IP_VS_DBG_PKT(11, pp, skb, (void *)ciph - (void *)iph,
+			      "Forwarding altered incoming ICMPv6");
+}
+#endif
+
+/* Response transmit icmp to client
+ * Used for NAT/LOCAL.
+ */
+int
+ip_vs_normal_response_icmp_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+				struct ip_vs_conn *cp, int offset)
+{
+	unsigned int verdict = NF_DROP;
+
+	if (!skb_make_writable(skb, offset))
+		goto out;
+
+	ip_vs_nat_icmp(skb, pp, cp, 1);
+
+	skb->ipvs_property = 1;
+	verdict = NF_ACCEPT;
+
+      out:
+	return verdict;
+}
+
+#ifdef CONFIG_IP_VS_IPV6
+
+int
+ip_vs_normal_response_icmp_xmit_v6(struct sk_buff *skb,
+				   struct ip_vs_protocol *pp,
+				   struct ip_vs_conn *cp, int offset)
+{
+	unsigned int verdict = NF_DROP;
+
+	if (!skb_make_writable(skb, offset))
+		goto out;
+
+	ip_vs_nat_icmp_v6(skb, pp, cp, 1);
+
+	skb->ipvs_property = 1;
+	verdict = NF_ACCEPT;
+
+      out:
+	return verdict;
+}
+
+#endif
+
+/* Response transmit icmp to client
+ * Used for NAT / local client / FULLNAT.
+ */
+int
+ip_vs_fnat_response_icmp_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+			      struct ip_vs_conn *cp, int offset)
+{
+	struct rtable *rt;	/* Route to the other host */
+	int mtu;
+	struct iphdr *iph = ip_hdr(skb);
+
+	/* lookup route table */
+	if (!(rt = ip_vs_get_rt(&cp->caddr, RT_TOS(iph->tos))))
+		goto tx_error_icmp;
+
+	/* MTU checking */
+	mtu = dst_mtu(&rt->u.dst);
+	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
+		ip_rt_put(rt);
+		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
+				 "fnat_response_icmp(): frag needed for");
+		goto tx_error;
+	}
+
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, offset))
+		goto tx_error_put;
+
+	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
+		goto tx_error_put;
+
+	/* drop old route */
+	skb_dst_drop(skb);
+	skb_dst_set(skb, &rt->u.dst);
+
+	ip_vs_nat_icmp(skb, pp, cp, 1);
+
+	/* Another hack: avoid icmp_send in ip_fragment */
+	skb->local_df = 1;
+
+	IP_VS_XMIT(PF_INET, skb, rt);
+
+	return NF_STOLEN;
+
+      tx_error_icmp:
+	dst_link_failure(skb);
+      tx_error:
+	kfree_skb(skb);
+	return NF_STOLEN;
+      tx_error_put:
+	ip_rt_put(rt);
+	goto tx_error;
+}
+
+#ifdef CONFIG_IP_VS_IPV6
+
+int
+ip_vs_fnat_response_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+				 struct ip_vs_conn *cp, int offset)
+{
+	struct rt6_info *rt;	/* Route to the other host */
+	int mtu;
+
+	/* lookup route table */
+	if (!(rt = ip_vs_get_rt_v6(&cp->caddr)))
+		goto tx_error_icmp;
+
+	/* MTU checking */
+	mtu = dst_mtu(&rt->u.dst);
+	if (skb->len > mtu) {
+		dst_release(&rt->u.dst);
+		IP_VS_DBG_RL("%s(): frag needed\n", __func__);
+		goto tx_error;
+	}
+
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, offset))
+		goto tx_error_put;
+
+	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
+		goto tx_error_put;
+
+	/* drop old route */
+	skb_dst_drop(skb);
+	skb_dst_set(skb, &rt->u.dst);
+
+	ip_vs_nat_icmp_v6(skb, pp, cp, 1);
+
+	/* Another hack: avoid icmp_send in ip_fragment */
+	skb->local_df = 1;
+
+	IP_VS_XMIT(PF_INET6, skb, rt);
+
+	return NF_STOLEN;
+
+      tx_error_icmp:
+	dst_link_failure(skb);
+      tx_error:
+	kfree_skb(skb);
+	return NF_STOLEN;
+      tx_error_put:
+	dst_release(&rt->u.dst);
+	goto tx_error;
+}
+
+#endif
+
+/* Response transmit to client
+ * Used for NAT/Local.
+ */
+int
+ip_vs_normal_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+			   struct ip_vs_conn *cp, int ihl)
+{
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, ihl))
+		goto drop;
+
+	/* mangle the packet */
+	if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
+		goto drop;
+
+	ip_hdr(skb)->saddr = cp->vaddr.ip;
+	ip_send_check(ip_hdr(skb));
+
+	/* For policy routing, packets originating from this
+	 * machine itself may be routed differently to packets
+	 * passing through.  We want this packet to be routed as
+	 * if it came from this machine itself.  So re-compute
+	 * the routing information.
+	 */
+	if (ip_route_me_harder(skb, RTN_LOCAL) != 0)
+		goto drop;
+
+	skb->ipvs_property = 1;
+
+	return NF_ACCEPT;
+
+      drop:
+	kfree_skb(skb);
+	return NF_STOLEN;
+}
+
+#ifdef CONFIG_IP_VS_IPV6
+
+int
+ip_vs_normal_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+			      struct ip_vs_conn *cp, int ihl)
+{
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, ihl))
+		goto drop;
+
+	/* mangle the packet */
+	if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
+		goto drop;
+
+	ipv6_hdr(skb)->saddr = cp->vaddr.in6;
+
+	/* For policy routing, packets originating from this
+	 * machine itself may be routed differently to packets
+	 * passing through.  We want this packet to be routed as
+	 * if it came from this machine itself.  So re-compute
+	 * the routing information.
+	 */
+	if (ip6_route_me_harder(skb) != 0)
+		goto drop;
+
+	skb->ipvs_property = 1;
+
+	return NF_ACCEPT;
+
+      drop:
+	kfree_skb(skb);
+	return NF_STOLEN;
+}
+
+#endif
+
+/* Response transmit to client
+ * Used for FULLNAT.
+ */
+int
+ip_vs_fnat_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+			 struct ip_vs_conn *cp, int ihl)
+{
+	struct rtable *rt;	/* Route to the other host */
+	int mtu;
+	struct iphdr *iph = ip_hdr(skb);
+
+	/* lookup route table */
+	if (!(rt = ip_vs_get_rt(&cp->caddr, RT_TOS(iph->tos))))
+		goto tx_error_icmp;
+
+	/* MTU checking */
+	mtu = dst_mtu(&rt->u.dst);
+	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
+		ip_rt_put(rt);
+		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
+				 "handle_fnat_response(): frag needed for");
+		goto tx_error;
+	}
+
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, ihl))
+		goto tx_error_put;
+
+	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
+		goto tx_error_put;
+
+	/* drop old route */
+	skb_dst_drop(skb);
+	skb_dst_set(skb, &rt->u.dst);
+
+	/* mangle the packet */
+	if (pp->fnat_out_handler && !pp->fnat_out_handler(skb, pp, cp))
+		goto tx_error;
+
+	ip_hdr(skb)->saddr = cp->vaddr.ip;
+	ip_hdr(skb)->daddr = cp->caddr.ip;
+	ip_send_check(ip_hdr(skb));
+
+	/* Another hack: avoid icmp_send in ip_fragment */
+	skb->local_df = 1;
+
+	IP_VS_XMIT(PF_INET, skb, rt);
+
+	return NF_STOLEN;
+
+      tx_error_icmp:
+	dst_link_failure(skb);
+      tx_error:
+	kfree_skb(skb);
+	return NF_STOLEN;
+      tx_error_put:
+	ip_rt_put(rt);
+	goto tx_error;
+}
+
+#ifdef CONFIG_IP_VS_IPV6
+
+int
+ip_vs_fnat_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+			    struct ip_vs_conn *cp, int ihl)
+{
+	struct rt6_info *rt;	/* Route to the other host */
+	int mtu;
+
+	/* lookup route table */
+	if (!(rt = ip_vs_get_rt_v6(&cp->caddr)))
+		goto tx_error_icmp;
+
+	/* MTU checking */
+	mtu = dst_mtu(&rt->u.dst);
+	if (skb->len > mtu) {
+		dst_release(&rt->u.dst);
+		icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, mtu, skb->dev);
+		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
+				 "handle_fnat_response_v6(): frag needed for");
+		goto tx_error;
+	}
+
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, ihl))
+		goto tx_error_put;
+
+	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
+		goto tx_error_put;
+
+	/* drop old route */
+	skb_dst_drop(skb);
+	skb_dst_set(skb, &rt->u.dst);
+
+	/* mangle the packet */
+	if (pp->fnat_out_handler && !pp->fnat_out_handler(skb, pp, cp))
+		goto tx_error;
+
+	ipv6_hdr(skb)->saddr = cp->vaddr.in6;
+	ipv6_hdr(skb)->daddr = cp->caddr.in6;
+
+	/* Another hack: avoid icmp_send in ip_fragment */
+	skb->local_df = 1;
+
+	IP_VS_XMIT(PF_INET6, skb, rt);
+
+	return NF_STOLEN;
+
+      tx_error_icmp:
+	dst_link_failure(skb);
+      tx_error:
+	kfree_skb(skb);
+	return NF_STOLEN;
+      tx_error_put:
+	dst_release(&rt->u.dst);
+	goto tx_error;
+}
+
+#endif
 
 /*
  *      NULL transmitter (do nothing except return NF_ACCEPT)
@@ -212,7 +730,6 @@ ip_vs_null_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	return NF_ACCEPT;
 }
 
-
 /*
  *      Bypass transmitter
  *      Let packets bypass the destination when the destination is not
@@ -222,17 +739,17 @@ int
 ip_vs_bypass_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 		  struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;			/* Route to the other host */
-	struct iphdr  *iph = ip_hdr(skb);
-	u8     tos = iph->tos;
-	int    mtu;
+	struct rtable *rt;	/* Route to the other host */
+	struct iphdr *iph = ip_hdr(skb);
+	u8 tos = iph->tos;
+	int mtu;
 	struct flowi fl = {
 		.oif = 0,
 		.nl_u = {
-			.ip4_u = {
-				.daddr = iph->daddr,
-				.saddr = 0,
-				.tos = RT_TOS(tos), } },
+			 .ip4_u = {
+				   .daddr = iph->daddr,
+				   .saddr = 0,
+				   .tos = RT_TOS(tos),}},
 	};
 
 	EnterFunction(10);
@@ -247,7 +764,7 @@ ip_vs_bypass_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	mtu = dst_mtu(&rt->u.dst);
 	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
 		ip_rt_put(rt);
-		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
+		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
 		IP_VS_DBG_RL("%s(): frag needed\n", __func__);
 		goto tx_error;
 	}
@@ -274,9 +791,9 @@ ip_vs_bypass_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
- tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
- tx_error:
+      tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -287,15 +804,15 @@ int
 ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		     struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;			/* Route to the other host */
-	struct ipv6hdr  *iph = ipv6_hdr(skb);
-	int    mtu;
+	struct rt6_info *rt;	/* Route to the other host */
+	struct ipv6hdr *iph = ipv6_hdr(skb);
+	int mtu;
 	struct flowi fl = {
 		.oif = 0,
 		.nl_u = {
-			.ip6_u = {
-				.daddr = iph->daddr,
-				.saddr = { .s6_addr32 = {0, 0, 0, 0} }, } },
+			 .ip6_u = {
+				   .daddr = iph->daddr,
+				   .saddr = {.s6_addr32 = {0, 0, 0, 0}},}},
 	};
 
 	EnterFunction(10);
@@ -338,9 +855,9 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
- tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
- tx_error:
+      tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -355,7 +872,7 @@ int
 ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	       struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;		/* Route to the other host */
+	struct rtable *rt;	/* Route to the other host */
 	int mtu;
 	struct iphdr *iph = ip_hdr(skb);
 
@@ -364,7 +881,7 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	/* check if it is a connection of no-client-port */
 	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
 		__be16 _pt, *p;
-		p = skb_header_pointer(skb, iph->ihl*4, sizeof(_pt), &_pt);
+		p = skb_header_pointer(skb, iph->ihl * 4, sizeof(_pt), &_pt);
 		if (p == NULL)
 			goto tx_error;
 		ip_vs_conn_fill_cport(cp, *p);
@@ -378,8 +895,9 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	mtu = dst_mtu(&rt->u.dst);
 	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
 		ip_rt_put(rt);
-		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
-		IP_VS_DBG_RL_PKT(0, pp, skb, 0, "ip_vs_nat_xmit(): frag needed for");
+		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
+				 "ip_vs_nat_xmit(): frag needed for");
 		goto tx_error;
 	}
 
@@ -414,13 +932,13 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-  tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-  tx_error:
+      tx_error:
 	LeaveFunction(10);
 	kfree_skb(skb);
 	return NF_STOLEN;
-  tx_error_put:
+      tx_error_put:
 	ip_rt_put(rt);
 	goto tx_error;
 }
@@ -430,7 +948,7 @@ int
 ip_vs_nat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		  struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;		/* Route to the other host */
+	struct rt6_info *rt;	/* Route to the other host */
 	int mtu;
 
 	EnterFunction(10);
@@ -490,18 +1008,175 @@ ip_vs_nat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-tx_error:
+      tx_error:
 	LeaveFunction(10);
 	kfree_skb(skb);
 	return NF_STOLEN;
-tx_error_put:
+      tx_error_put:
 	dst_release(&rt->u.dst);
 	goto tx_error;
 }
 #endif
 
+/*
+ *      FULLNAT transmitter (only for outside-to-inside fullnat forwarding)
+ *      Not used for related ICMP
+ */
+int
+ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+		struct ip_vs_protocol *pp)
+{
+	struct rtable *rt;	/* Route to the other host */
+	int mtu;
+	struct iphdr *iph = ip_hdr(skb);
+
+	EnterFunction(10);
+
+	/* check if it is a connection of no-client-port */
+	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
+		__be16 _pt, *p;
+		p = skb_header_pointer(skb, iph->ihl * 4, sizeof(_pt), &_pt);
+		if (p == NULL)
+			goto tx_error;
+		ip_vs_conn_fill_cport(cp, *p);
+		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+	}
+
+	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
+		goto tx_error_icmp;
+
+	/* MTU checking */
+	mtu = dst_mtu(&rt->u.dst);
+	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
+		ip_rt_put(rt);
+		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
+				 "ip_vs_nat_xmit(): frag needed for");
+		goto tx_error;
+	}
+
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, sizeof(struct iphdr)))
+		goto tx_error_put;
+
+	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
+		goto tx_error_put;
+
+	/* drop old route */
+	skb_dst_drop(skb);
+	skb_dst_set(skb, &rt->u.dst);
+
+	/* mangle the packet */
+	if (pp->fnat_in_handler && !pp->fnat_in_handler(&skb, pp, cp))
+		goto tx_error;
+	ip_hdr(skb)->saddr = cp->laddr.ip;
+	ip_hdr(skb)->daddr = cp->daddr.ip;
+	ip_send_check(ip_hdr(skb));
+
+	IP_VS_DBG_PKT(10, pp, skb, 0, "After FNAT-IN");
+
+	/* FIXME: when application helper enlarges the packet and the length
+	   is larger than the MTU of outgoing device, there will be still
+	   MTU problem. */
+
+	/* Another hack: avoid icmp_send in ip_fragment */
+	skb->local_df = 1;
+
+	IP_VS_XMIT(PF_INET, skb, rt);
+
+	LeaveFunction(10);
+	return NF_STOLEN;
+
+      tx_error_icmp:
+	dst_link_failure(skb);
+      tx_error:
+	LeaveFunction(10);
+	kfree_skb(skb);
+	return NF_STOLEN;
+      tx_error_put:
+	ip_rt_put(rt);
+	goto tx_error;
+}
+
+#ifdef CONFIG_IP_VS_IPV6
+int
+ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+		   struct ip_vs_protocol *pp)
+{
+	struct rt6_info *rt;	/* Route to the other host */
+	int mtu;
+
+	EnterFunction(10);
+
+	/* check if it is a connection of no-client-port */
+	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
+		__be16 _pt, *p;
+		p = skb_header_pointer(skb, sizeof(struct ipv6hdr),
+				       sizeof(_pt), &_pt);
+		if (p == NULL)
+			goto tx_error;
+		ip_vs_conn_fill_cport(cp, *p);
+		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+	}
+
+	rt = __ip_vs_get_out_rt_v6(cp);
+	if (!rt)
+		goto tx_error_icmp;
+
+	/* MTU checking */
+	mtu = dst_mtu(&rt->u.dst);
+	if (skb->len > mtu) {
+		dst_release(&rt->u.dst);
+		icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, mtu, skb->dev);
+		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
+				 "ip_vs_nat_xmit_v6(): frag needed for");
+		goto tx_error;
+	}
+
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, sizeof(struct ipv6hdr)))
+		goto tx_error_put;
+
+	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
+		goto tx_error_put;
+
+	/* drop old route */
+	skb_dst_drop(skb);
+	skb_dst_set(skb, &rt->u.dst);
+
+	/* mangle the packet */
+	if (pp->fnat_in_handler && !pp->fnat_in_handler(&skb, pp, cp))
+		goto tx_error;
+	ipv6_hdr(skb)->saddr = cp->laddr.in6;
+	ipv6_hdr(skb)->daddr = cp->daddr.in6;
+
+	IP_VS_DBG_PKT(10, pp, skb, 0, "After FNAT-IN");
+
+	/* FIXME: when application helper enlarges the packet and the length
+	   is larger than the MTU of outgoing device, there will be still
+	   MTU problem. */
+
+	/* Another hack: avoid icmp_send in ip_fragment */
+	skb->local_df = 1;
+
+	IP_VS_XMIT(PF_INET6, skb, rt);
+
+	LeaveFunction(10);
+	return NF_STOLEN;
+
+      tx_error_icmp:
+	dst_link_failure(skb);
+      tx_error:
+	LeaveFunction(10);
+	kfree_skb(skb);
+	return NF_STOLEN;
+      tx_error_put:
+	dst_release(&rt->u.dst);
+	goto tx_error;
+}
+#endif
 
 /*
  *   IP Tunneling transmitter
@@ -526,15 +1201,15 @@ int
 ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 		  struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;			/* Route to the other host */
-	struct net_device *tdev;		/* Device to other host */
-	struct iphdr  *old_iph = ip_hdr(skb);
-	u8     tos = old_iph->tos;
+	struct rtable *rt;	/* Route to the other host */
+	struct net_device *tdev;	/* Device to other host */
+	struct iphdr *old_iph = ip_hdr(skb);
+	u8 tos = old_iph->tos;
 	__be16 df = old_iph->frag_off;
 	sk_buff_data_t old_transport_header = skb->transport_header;
-	struct iphdr  *iph;			/* Our new IP header */
-	unsigned int max_headroom;		/* The extra header space needed */
-	int    mtu;
+	struct iphdr *iph;	/* Our new IP header */
+	unsigned int max_headroom;	/* The extra header space needed */
+	int mtu;
 
 	EnterFunction(10);
 
@@ -563,7 +1238,7 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	if ((old_iph->frag_off & htons(IP_DF))
 	    && mtu < ntohs(old_iph->tot_len)) {
-		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
+		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
 		ip_rt_put(rt);
 		IP_VS_DBG_RL("%s(): frag needed\n", __func__);
 		goto tx_error;
@@ -577,7 +1252,7 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	if (skb_headroom(skb) < max_headroom
 	    || skb_cloned(skb) || skb_shared(skb)) {
 		struct sk_buff *new_skb =
-			skb_realloc_headroom(skb, max_headroom);
+		    skb_realloc_headroom(skb, max_headroom);
 		if (!new_skb) {
 			ip_rt_put(rt);
 			kfree_skb(skb);
@@ -603,17 +1278,17 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	skb_dst_set(skb, &rt->u.dst);
 
 	/*
-	 *	Push down and install the IPIP header.
+	 *      Push down and install the IPIP header.
 	 */
-	iph			=	ip_hdr(skb);
-	iph->version		=	4;
-	iph->ihl		=	sizeof(struct iphdr)>>2;
-	iph->frag_off		=	df;
-	iph->protocol		=	IPPROTO_IPIP;
-	iph->tos		=	tos;
-	iph->daddr		=	rt->rt_dst;
-	iph->saddr		=	rt->rt_src;
-	iph->ttl		=	old_iph->ttl;
+	iph = ip_hdr(skb);
+	iph->version = 4;
+	iph->ihl = sizeof(struct iphdr) >> 2;
+	iph->frag_off = df;
+	iph->protocol = IPPROTO_IPIP;
+	iph->tos = tos;
+	iph->daddr = rt->rt_dst;
+	iph->saddr = rt->rt_src;
+	iph->ttl = old_iph->ttl;
 	ip_select_ident(iph, &rt->u.dst, NULL);
 
 	/* Another hack: avoid icmp_send in ip_fragment */
@@ -625,9 +1300,9 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	return NF_STOLEN;
 
-  tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-  tx_error:
+      tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -638,13 +1313,13 @@ int
 ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		     struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;		/* Route to the other host */
+	struct rt6_info *rt;	/* Route to the other host */
 	struct net_device *tdev;	/* Device to other host */
-	struct ipv6hdr  *old_iph = ipv6_hdr(skb);
+	struct ipv6hdr *old_iph = ipv6_hdr(skb);
 	sk_buff_data_t old_transport_header = skb->transport_header;
-	struct ipv6hdr  *iph;		/* Our new IP header */
+	struct ipv6hdr *iph;	/* Our new IP header */
 	unsigned int max_headroom;	/* The extra header space needed */
-	int    mtu;
+	int mtu;
 
 	EnterFunction(10);
 
@@ -686,7 +1361,7 @@ ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	if (skb_headroom(skb) < max_headroom
 	    || skb_cloned(skb) || skb_shared(skb)) {
 		struct sk_buff *new_skb =
-			skb_realloc_headroom(skb, max_headroom);
+		    skb_realloc_headroom(skb, max_headroom);
 		if (!new_skb) {
 			dst_release(&rt->u.dst);
 			kfree_skb(skb);
@@ -709,18 +1384,18 @@ ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	skb_dst_set(skb, &rt->u.dst);
 
 	/*
-	 *	Push down and install the IPIP header.
+	 *      Push down and install the IPIP header.
 	 */
-	iph			=	ipv6_hdr(skb);
-	iph->version		=	6;
-	iph->nexthdr		=	IPPROTO_IPV6;
-	iph->payload_len	=	old_iph->payload_len;
+	iph = ipv6_hdr(skb);
+	iph->version = 6;
+	iph->nexthdr = IPPROTO_IPV6;
+	iph->payload_len = old_iph->payload_len;
 	be16_add_cpu(&iph->payload_len, sizeof(*old_iph));
-	iph->priority		=	old_iph->priority;
+	iph->priority = old_iph->priority;
 	memset(&iph->flow_lbl, 0, sizeof(iph->flow_lbl));
-	iph->daddr		=	rt->rt6i_dst.addr;
-	iph->saddr		=	cp->vaddr.in6; /* rt->rt6i_src.addr; */
-	iph->hop_limit		=	old_iph->hop_limit;
+	iph->daddr = rt->rt6i_dst.addr;
+	iph->saddr = cp->vaddr.in6;	/* rt->rt6i_src.addr; */
+	iph->hop_limit = old_iph->hop_limit;
 
 	/* Another hack: avoid icmp_send in ip_fragment */
 	skb->local_df = 1;
@@ -731,15 +1406,14 @@ ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	return NF_STOLEN;
 
-tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-tx_error:
+      tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
 }
 #endif
-
 
 /*
  *      Direct Routing transmitter
@@ -749,9 +1423,9 @@ int
 ip_vs_dr_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	      struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;			/* Route to the other host */
-	struct iphdr  *iph = ip_hdr(skb);
-	int    mtu;
+	struct rtable *rt;	/* Route to the other host */
+	struct iphdr *iph = ip_hdr(skb);
+	int mtu;
 
 	EnterFunction(10);
 
@@ -761,7 +1435,7 @@ ip_vs_dr_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	/* MTU checking */
 	mtu = dst_mtu(&rt->u.dst);
 	if ((iph->frag_off & htons(IP_DF)) && skb->len > mtu) {
-		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
+		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
 		ip_rt_put(rt);
 		IP_VS_DBG_RL("%s(): frag needed\n", __func__);
 		goto tx_error;
@@ -789,9 +1463,9 @@ ip_vs_dr_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-  tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-  tx_error:
+      tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -802,8 +1476,8 @@ int
 ip_vs_dr_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		 struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;			/* Route to the other host */
-	int    mtu;
+	struct rt6_info *rt;	/* Route to the other host */
+	int mtu;
 
 	EnterFunction(10);
 
@@ -842,15 +1516,14 @@ ip_vs_dr_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-tx_error:
+      tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
 }
 #endif
-
 
 /*
  *	ICMP packet transmitter
@@ -860,7 +1533,7 @@ int
 ip_vs_icmp_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 		struct ip_vs_protocol *pp, int offset)
 {
-	struct rtable	*rt;	/* Route to the other host */
+	struct rtable *rt;	/* Route to the other host */
 	int mtu;
 	int rc;
 
@@ -869,7 +1542,8 @@ ip_vs_icmp_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	/* The ICMP packet for VS/TUN, VS/DR and LOCALNODE will be
 	   forwarded directly here, because there is no need to
 	   translate address/port back */
-	if (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ) {
+	if ((IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ) &&
+	    (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_FULLNAT)) {
 		if (cp->packet_xmit)
 			rc = cp->packet_xmit(skb, cp, pp);
 		else
@@ -916,15 +1590,15 @@ ip_vs_icmp_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	rc = NF_STOLEN;
 	goto out;
 
-  tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-  tx_error:
+      tx_error:
 	dev_kfree_skb(skb);
 	rc = NF_STOLEN;
-  out:
+      out:
 	LeaveFunction(10);
 	return rc;
-  tx_error_put:
+      tx_error_put:
 	ip_rt_put(rt);
 	goto tx_error;
 }
@@ -932,9 +1606,9 @@ ip_vs_icmp_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 #ifdef CONFIG_IP_VS_IPV6
 int
 ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
-		struct ip_vs_protocol *pp, int offset)
+		   struct ip_vs_protocol *pp, int offset)
 {
-	struct rt6_info	*rt;	/* Route to the other host */
+	struct rt6_info *rt;	/* Route to the other host */
 	int mtu;
 	int rc;
 
@@ -943,7 +1617,8 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	/* The ICMP packet for VS/TUN, VS/DR and LOCALNODE will be
 	   forwarded directly here, because there is no need to
 	   translate address/port back */
-	if (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ) {
+	if ((IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ) &&
+	    (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_FULLNAT)) {
 		if (cp->packet_xmit)
 			rc = cp->packet_xmit(skb, cp, pp);
 		else
@@ -991,15 +1666,15 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	rc = NF_STOLEN;
 	goto out;
 
-tx_error_icmp:
+      tx_error_icmp:
 	dst_link_failure(skb);
-tx_error:
+      tx_error:
 	dev_kfree_skb(skb);
 	rc = NF_STOLEN;
-out:
+      out:
 	LeaveFunction(10);
 	return rc;
-tx_error_put:
+      tx_error_put:
 	dst_release(&rt->u.dst);
 	goto tx_error;
 }

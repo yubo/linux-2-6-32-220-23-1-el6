@@ -42,12 +42,11 @@
 
 #include <net/ip_vs.h>
 
-
 /*
  *      IPVS SH bucket
  */
 struct ip_vs_sh_bucket {
-	struct ip_vs_dest       *dest;          /* real server (cache) */
+	struct ip_vs_dest *dest;	/* real server (cache) */
 };
 
 /*
@@ -60,7 +59,6 @@ struct ip_vs_sh_bucket {
 #define IP_VS_SH_TAB_SIZE               (1 << IP_VS_SH_TAB_BITS)
 #define IP_VS_SH_TAB_MASK               (IP_VS_SH_TAB_SIZE - 1)
 
-
 /*
  *	Returns hash value for IPVS SH entry
  */
@@ -70,23 +68,21 @@ static inline unsigned ip_vs_sh_hashkey(int af, const union nf_inet_addr *addr)
 
 #ifdef CONFIG_IP_VS_IPV6
 	if (af == AF_INET6)
-		addr_fold = addr->ip6[0]^addr->ip6[1]^
-			    addr->ip6[2]^addr->ip6[3];
+		addr_fold = addr->ip6[0] ^ addr->ip6[1] ^
+		    addr->ip6[2] ^ addr->ip6[3];
 #endif
-	return (ntohl(addr_fold)*2654435761UL) & IP_VS_SH_TAB_MASK;
+	return (ntohl(addr_fold) * 2654435761UL) & IP_VS_SH_TAB_MASK;
 }
-
 
 /*
  *      Get ip_vs_dest associated with supplied parameters.
  */
-static inline struct ip_vs_dest *
-ip_vs_sh_get(int af, struct ip_vs_sh_bucket *tbl,
-	     const union nf_inet_addr *addr)
+static inline struct ip_vs_dest *ip_vs_sh_get(int af,
+					      struct ip_vs_sh_bucket *tbl,
+					      const union nf_inet_addr *addr)
 {
 	return (tbl[ip_vs_sh_hashkey(af, addr)]).dest;
 }
-
 
 /*
  *      Assign all the hash buckets of the specified table with the service.
@@ -101,7 +97,7 @@ ip_vs_sh_assign(struct ip_vs_sh_bucket *tbl, struct ip_vs_service *svc)
 
 	b = tbl;
 	p = &svc->destinations;
-	for (i=0; i<IP_VS_SH_TAB_SIZE; i++) {
+	for (i = 0; i < IP_VS_SH_TAB_SIZE; i++) {
 		if (list_empty(p)) {
 			b->dest = NULL;
 		} else {
@@ -119,7 +115,6 @@ ip_vs_sh_assign(struct ip_vs_sh_bucket *tbl, struct ip_vs_service *svc)
 	return 0;
 }
 
-
 /*
  *      Flush all the hash buckets of the specified table.
  */
@@ -129,7 +124,7 @@ static void ip_vs_sh_flush(struct ip_vs_sh_bucket *tbl)
 	struct ip_vs_sh_bucket *b;
 
 	b = tbl;
-	for (i=0; i<IP_VS_SH_TAB_SIZE; i++) {
+	for (i = 0; i < IP_VS_SH_TAB_SIZE; i++) {
 		if (b->dest) {
 			atomic_dec(&b->dest->refcnt);
 			b->dest = NULL;
@@ -138,13 +133,12 @@ static void ip_vs_sh_flush(struct ip_vs_sh_bucket *tbl)
 	}
 }
 
-
 static int ip_vs_sh_init_svc(struct ip_vs_service *svc)
 {
 	struct ip_vs_sh_bucket *tbl;
 
 	/* allocate the SH table for this service */
-	tbl = kmalloc(sizeof(struct ip_vs_sh_bucket)*IP_VS_SH_TAB_SIZE,
+	tbl = kmalloc(sizeof(struct ip_vs_sh_bucket) * IP_VS_SH_TAB_SIZE,
 		      GFP_ATOMIC);
 	if (tbl == NULL) {
 		pr_err("%s(): no memory\n", __func__);
@@ -153,14 +147,13 @@ static int ip_vs_sh_init_svc(struct ip_vs_service *svc)
 	svc->sched_data = tbl;
 	IP_VS_DBG(6, "SH hash table (memory=%Zdbytes) allocated for "
 		  "current service\n",
-		  sizeof(struct ip_vs_sh_bucket)*IP_VS_SH_TAB_SIZE);
+		  sizeof(struct ip_vs_sh_bucket) * IP_VS_SH_TAB_SIZE);
 
 	/* assign the hash buckets with the updated service */
 	ip_vs_sh_assign(tbl, svc);
 
 	return 0;
 }
-
 
 static int ip_vs_sh_done_svc(struct ip_vs_service *svc)
 {
@@ -172,11 +165,10 @@ static int ip_vs_sh_done_svc(struct ip_vs_service *svc)
 	/* release the table itself */
 	kfree(svc->sched_data);
 	IP_VS_DBG(6, "SH hash table (memory=%Zdbytes) released\n",
-		  sizeof(struct ip_vs_sh_bucket)*IP_VS_SH_TAB_SIZE);
+		  sizeof(struct ip_vs_sh_bucket) * IP_VS_SH_TAB_SIZE);
 
 	return 0;
 }
-
 
 static int ip_vs_sh_update_svc(struct ip_vs_service *svc)
 {
@@ -191,7 +183,6 @@ static int ip_vs_sh_update_svc(struct ip_vs_service *svc)
 	return 0;
 }
 
-
 /*
  *      If the dest flags is set with IP_VS_DEST_F_OVERLOAD,
  *      consider that the server is overloaded here.
@@ -201,12 +192,11 @@ static inline int is_overloaded(struct ip_vs_dest *dest)
 	return dest->flags & IP_VS_DEST_F_OVERLOAD;
 }
 
-
 /*
  *      Source Hashing scheduling
  */
-static struct ip_vs_dest *
-ip_vs_sh_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
+static struct ip_vs_dest *ip_vs_sh_schedule(struct ip_vs_service *svc,
+					    const struct sk_buff *skb)
 {
 	struct ip_vs_dest *dest;
 	struct ip_vs_sh_bucket *tbl;
@@ -218,50 +208,42 @@ ip_vs_sh_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 
 	tbl = (struct ip_vs_sh_bucket *)svc->sched_data;
 	dest = ip_vs_sh_get(svc->af, tbl, &iph.saddr);
-	if (!dest
-	    || !(dest->flags & IP_VS_DEST_F_AVAILABLE)
-	    || atomic_read(&dest->weight) <= 0
-	    || is_overloaded(dest)) {
+	if (!dest || !(dest->flags & IP_VS_DEST_F_AVAILABLE)
+	    || atomic_read(&dest->weight) <= 0 || is_overloaded(dest)) {
 		IP_VS_ERR_RL("SH: no destination available\n");
 		return NULL;
 	}
 
 	IP_VS_DBG_BUF(6, "SH: source IP address %s --> server %s:%d\n",
 		      IP_VS_DBG_ADDR(svc->af, &iph.saddr),
-		      IP_VS_DBG_ADDR(svc->af, &dest->addr),
-		      ntohs(dest->port));
+		      IP_VS_DBG_ADDR(svc->af, &dest->addr), ntohs(dest->port));
 
 	return dest;
 }
 
-
 /*
  *      IPVS SH Scheduler structure
  */
-static struct ip_vs_scheduler ip_vs_sh_scheduler =
-{
-	.name =			"sh",
-	.refcnt =		ATOMIC_INIT(0),
-	.module =		THIS_MODULE,
-	.n_list	 =		LIST_HEAD_INIT(ip_vs_sh_scheduler.n_list),
-	.init_service =		ip_vs_sh_init_svc,
-	.done_service =		ip_vs_sh_done_svc,
-	.update_service =	ip_vs_sh_update_svc,
-	.schedule =		ip_vs_sh_schedule,
+static struct ip_vs_scheduler ip_vs_sh_scheduler = {
+	.name = "sh",
+	.refcnt = ATOMIC_INIT(0),
+	.module = THIS_MODULE,
+	.n_list = LIST_HEAD_INIT(ip_vs_sh_scheduler.n_list),
+	.init_service = ip_vs_sh_init_svc,
+	.done_service = ip_vs_sh_done_svc,
+	.update_service = ip_vs_sh_update_svc,
+	.schedule = ip_vs_sh_schedule,
 };
-
 
 static int __init ip_vs_sh_init(void)
 {
 	return register_ip_vs_scheduler(&ip_vs_sh_scheduler);
 }
 
-
 static void __exit ip_vs_sh_cleanup(void)
 {
 	unregister_ip_vs_scheduler(&ip_vs_sh_scheduler);
 }
-
 
 module_init(ip_vs_sh_init);
 module_exit(ip_vs_sh_cleanup);

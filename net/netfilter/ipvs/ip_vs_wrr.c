@@ -37,7 +37,6 @@ struct ip_vs_wrr_mark {
 	int di;			/* decreasing interval */
 };
 
-
 /*
  *    Get the gcd of server weights
  */
@@ -70,7 +69,6 @@ static int ip_vs_wrr_gcd_weight(struct ip_vs_service *svc)
 	return g ? g : 1;
 }
 
-
 /*
  *    Get the maximum weight of the service destinations.
  */
@@ -87,7 +85,6 @@ static int ip_vs_wrr_max_weight(struct ip_vs_service *svc)
 
 	return weight;
 }
-
 
 static int ip_vs_wrr_init_svc(struct ip_vs_service *svc)
 {
@@ -110,7 +107,6 @@ static int ip_vs_wrr_init_svc(struct ip_vs_service *svc)
 	return 0;
 }
 
-
 static int ip_vs_wrr_done_svc(struct ip_vs_service *svc)
 {
 	/*
@@ -120,7 +116,6 @@ static int ip_vs_wrr_done_svc(struct ip_vs_service *svc)
 
 	return 0;
 }
-
 
 static int ip_vs_wrr_update_svc(struct ip_vs_service *svc)
 {
@@ -134,12 +129,11 @@ static int ip_vs_wrr_update_svc(struct ip_vs_service *svc)
 	return 0;
 }
 
-
 /*
  *    Weighted Round-Robin Scheduling
  */
-static struct ip_vs_dest *
-ip_vs_wrr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
+static struct ip_vs_dest *ip_vs_wrr_schedule(struct ip_vs_service *svc,
+					     const struct sk_buff *skb)
 {
 	struct ip_vs_dest *dest;
 	struct ip_vs_wrr_mark *mark = svc->sched_data;
@@ -207,29 +201,27 @@ ip_vs_wrr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 		      "activeconns %d refcnt %d weight %d\n",
 		      IP_VS_DBG_ADDR(svc->af, &dest->addr), ntohs(dest->port),
 		      atomic_read(&dest->activeconns),
-		      atomic_read(&dest->refcnt),
-		      atomic_read(&dest->weight));
+		      atomic_read(&dest->refcnt), atomic_read(&dest->weight));
 
-  out:
+      out:
 	write_unlock(&svc->sched_lock);
 	return dest;
 }
 
-
 static struct ip_vs_scheduler ip_vs_wrr_scheduler = {
-	.name =			"wrr",
-	.refcnt =		ATOMIC_INIT(0),
-	.module =		THIS_MODULE,
-	.n_list =		LIST_HEAD_INIT(ip_vs_wrr_scheduler.n_list),
-	.init_service =		ip_vs_wrr_init_svc,
-	.done_service =		ip_vs_wrr_done_svc,
-	.update_service =	ip_vs_wrr_update_svc,
-	.schedule =		ip_vs_wrr_schedule,
+	.name = "wrr",
+	.refcnt = ATOMIC_INIT(0),
+	.module = THIS_MODULE,
+	.n_list = LIST_HEAD_INIT(ip_vs_wrr_scheduler.n_list),
+	.init_service = ip_vs_wrr_init_svc,
+	.done_service = ip_vs_wrr_done_svc,
+	.update_service = ip_vs_wrr_update_svc,
+	.schedule = ip_vs_wrr_schedule,
 };
 
 static int __init ip_vs_wrr_init(void)
 {
-	return register_ip_vs_scheduler(&ip_vs_wrr_scheduler) ;
+	return register_ip_vs_scheduler(&ip_vs_wrr_scheduler);
 }
 
 static void __exit ip_vs_wrr_cleanup(void)
