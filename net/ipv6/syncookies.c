@@ -12,12 +12,6 @@
  *      as published by the Free Software Foundation; either version
  *      2 of the License, or (at your option) any later version.
  *
- * Changes:
- *	Jian Chen <jian.chen1225@gmail.com>
- *	Yan Tian <tianyan.7c00@gmail.com>
- *
- *	add synproxy cookies for ipvs module
- *
  */
 
 #include <linux/tcp.h>

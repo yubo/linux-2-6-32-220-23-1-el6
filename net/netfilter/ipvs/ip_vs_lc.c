@@ -22,24 +22,27 @@
 
 #include <net/ip_vs.h>
 
-static inline unsigned int ip_vs_lc_dest_overhead(struct ip_vs_dest *dest)
+
+static inline unsigned int
+ip_vs_lc_dest_overhead(struct ip_vs_dest *dest)
 {
 	/*
 	 * We think the overhead of processing active connections is 256
 	 * times higher than that of inactive connections in average. (This
 	 * 256 times might not be accurate, we will change it later) We
 	 * use the following formula to estimate the overhead now:
-	 *                dest->activeconns*256 + dest->inactconns
+	 *		  dest->activeconns*256 + dest->inactconns
 	 */
 	return (atomic_read(&dest->activeconns) << 8) +
-	    atomic_read(&dest->inactconns);
+		atomic_read(&dest->inactconns);
 }
+
 
 /*
  *	Least Connection scheduling
  */
-static struct ip_vs_dest *ip_vs_lc_schedule(struct ip_vs_service *svc,
-					    const struct sk_buff *skb)
+static struct ip_vs_dest *
+ip_vs_lc_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 {
 	struct ip_vs_dest *dest, *least = NULL;
 	unsigned int loh = 0, doh;
@@ -79,17 +82,19 @@ static struct ip_vs_dest *ip_vs_lc_schedule(struct ip_vs_service *svc,
 	return least;
 }
 
+
 static struct ip_vs_scheduler ip_vs_lc_scheduler = {
-	.name = "lc",
-	.refcnt = ATOMIC_INIT(0),
-	.module = THIS_MODULE,
-	.n_list = LIST_HEAD_INIT(ip_vs_lc_scheduler.n_list),
-	.schedule = ip_vs_lc_schedule,
+	.name =			"lc",
+	.refcnt =		ATOMIC_INIT(0),
+	.module =		THIS_MODULE,
+	.n_list =		LIST_HEAD_INIT(ip_vs_lc_scheduler.n_list),
+	.schedule =		ip_vs_lc_schedule,
 };
+
 
 static int __init ip_vs_lc_init(void)
 {
-	return register_ip_vs_scheduler(&ip_vs_lc_scheduler);
+	return register_ip_vs_scheduler(&ip_vs_lc_scheduler) ;
 }
 
 static void __exit ip_vs_lc_cleanup(void)

@@ -17,12 +17,12 @@
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
 #include <linux/kernel.h>
-#include <linux/tcp.h>		/* for tcphdr */
+#include <linux/tcp.h>                  /* for tcphdr */
 #include <net/ip.h>
-#include <net/tcp.h>		/* for csum_tcpudp_magic */
+#include <net/tcp.h>                    /* for csum_tcpudp_magic */
 #include <net/udp.h>
-#include <net/icmp.h>		/* for icmp_send */
-#include <net/route.h>		/* for ip_route_output */
+#include <net/icmp.h>                   /* for icmp_send */
+#include <net/route.h>                  /* for ip_route_output */
 #include <net/ipv6.h>
 #include <net/ip6_route.h>
 #include <linux/icmpv6.h>
@@ -67,27 +67,26 @@ static inline struct dst_entry *__ip_vs_dst_check(struct ip_vs_dest *dest,
 
 static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
 {
-	struct rtable *rt;	/* Route to the other host */
+	struct rtable *rt;			/* Route to the other host */
 	struct ip_vs_dest *dest = cp->dest;
 
-	if (dest) {
+	if (dest && dest->addr.ip != IP_VS_DSNAT_RS_ADDR) {
 		spin_lock(&dest->dst_lock);
 		if (!(rt = (struct rtable *)
 		      __ip_vs_dst_check(dest, rtos, 0))) {
 			struct flowi fl = {
 				.oif = 0,
 				.nl_u = {
-					 .ip4_u = {
-						   .daddr = dest->addr.ip,
-						   .saddr = 0,
-						   .tos = rtos,}},
+					.ip4_u = {
+						.daddr = dest->addr.ip,
+						.saddr = 0,
+						.tos = rtos, } },
 			};
 
 			if (ip_route_output_key(&init_net, &rt, &fl)) {
 				spin_unlock(&dest->dst_lock);
-				IP_VS_DBG_RL
-				    ("ip_route_output error, dest: %pI4\n",
-				     &dest->addr.ip);
+				IP_VS_DBG_RL("ip_route_output error, dest: %pI4\n",
+					     &dest->addr.ip);
 				return NULL;
 			}
 			__ip_vs_dst_set(dest, rtos, dst_clone(&rt->u.dst));
@@ -100,10 +99,10 @@ static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
 		struct flowi fl = {
 			.oif = 0,
 			.nl_u = {
-				 .ip4_u = {
-					   .daddr = cp->daddr.ip,
-					   .saddr = 0,
-					   .tos = rtos,}},
+				.ip4_u = {
+					.daddr = cp->daddr.ip,
+					.saddr = 0,
+					.tos = rtos, } },
 		};
 
 		if (ip_route_output_key(&init_net, &rt, &fl)) {
@@ -138,9 +137,10 @@ struct rtable *ip_vs_get_rt(union nf_inet_addr *addr, u32 rtos)
 }
 
 #ifdef CONFIG_IP_VS_IPV6
-static struct rt6_info *__ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
+static struct rt6_info *
+__ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
 {
-	struct rt6_info *rt;	/* Route to the other host */
+	struct rt6_info *rt;			/* Route to the other host */
 	struct ip_vs_dest *dest = cp->dest;
 
 	if (dest) {
@@ -150,23 +150,22 @@ static struct rt6_info *__ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
 			struct flowi fl = {
 				.oif = 0,
 				.nl_u = {
-					 .ip6_u = {
-						   .daddr = dest->addr.in6,
-						   .saddr = {
-							     .s6_addr32 =
-							     {0, 0, 0, 0},
-							     },
-						   },
-					 },
+					.ip6_u = {
+						.daddr = dest->addr.in6,
+						.saddr = {
+							.s6_addr32 =
+								{ 0, 0, 0, 0 },
+						},
+					},
+				},
 			};
 
 			rt = (struct rt6_info *)ip6_route_output(&init_net,
 								 NULL, &fl);
 			if (!rt) {
 				spin_unlock(&dest->dst_lock);
-				IP_VS_DBG_RL
-				    ("ip6_route_output error, dest: %pI6\n",
-				     &dest->addr.in6);
+				IP_VS_DBG_RL("ip6_route_output error, dest: %pI6\n",
+					     &dest->addr.in6);
 				return NULL;
 			}
 			__ip_vs_dst_set(dest, 0, dst_clone(&rt->u.dst));
@@ -179,13 +178,13 @@ static struct rt6_info *__ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
 		struct flowi fl = {
 			.oif = 0,
 			.nl_u = {
-				 .ip6_u = {
-					   .daddr = cp->daddr.in6,
-					   .saddr = {
-						     .s6_addr32 = {0, 0, 0, 0},
-						     },
-					   },
-				 },
+				.ip6_u = {
+					.daddr = cp->daddr.in6,
+					.saddr = {
+						.s6_addr32 = { 0, 0, 0, 0 },
+					},
+				},
+			},
 		};
 
 		rt = (struct rt6_info *)ip6_route_output(&init_net, NULL, &fl);
@@ -226,10 +225,12 @@ struct rt6_info *ip_vs_get_rt_v6(union nf_inet_addr *addr)
 }
 #endif
 
+
 /*
  *	Release dest->dst_cache before a dest is removed
  */
-void ip_vs_dst_reset(struct ip_vs_dest *dest)
+void
+ip_vs_dst_reset(struct ip_vs_dest *dest)
 {
 	struct dst_entry *old_dst;
 
@@ -292,8 +293,9 @@ static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
 						   icmp_offset);
 	struct iphdr *ciph = (struct iphdr *)(icmph + 1);
 	__u32 fullnat = (IP_VS_FWD_METHOD(cp) == IP_VS_CONN_F_FULLNAT);
+	__u32 dsnat = (IP_VS_FWD_METHOD(cp) == IP_VS_CONN_F_DSNAT);
 
-	if (fullnat) {
+	if (fullnat | dsnat) {
 		if (inout) {
 			iph->daddr = cp->caddr.ip;
 			ciph->saddr = cp->caddr.ip;
@@ -319,7 +321,7 @@ static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
 	if (IPPROTO_TCP == ciph->protocol || IPPROTO_UDP == ciph->protocol) {
 		__be16 *ports = (void *)ciph + ciph->ihl * 4;
 
-		if (fullnat) {
+		if (fullnat | dsnat) {
 			if (inout) {
 				ports[0] = cp->cport;
 				/* The seq of packet form client
@@ -1083,6 +1085,7 @@ ip_vs_null_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	return NF_ACCEPT;
 }
 
+
 /*
  *      Bypass transmitter
  *      Let packets bypass the destination when the destination is not
@@ -1092,17 +1095,17 @@ int
 ip_vs_bypass_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 		  struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;	/* Route to the other host */
-	struct iphdr *iph = ip_hdr(skb);
-	u8 tos = iph->tos;
-	int mtu;
+	struct rtable *rt;			/* Route to the other host */
+	struct iphdr  *iph = ip_hdr(skb);
+	u8     tos = iph->tos;
+	int    mtu;
 	struct flowi fl = {
 		.oif = 0,
 		.nl_u = {
-			 .ip4_u = {
-				   .daddr = iph->daddr,
-				   .saddr = 0,
-				   .tos = RT_TOS(tos),}},
+			.ip4_u = {
+				.daddr = iph->daddr,
+				.saddr = 0,
+				.tos = RT_TOS(tos), } },
 	};
 
 	EnterFunction(10);
@@ -1118,7 +1121,7 @@ ip_vs_bypass_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
 		ip_rt_put(rt);
 		IP_VS_INC_ESTATS(ip_vs_esmib, XMIT_UNEXPECTED_MTU);
-		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
 		IP_VS_DBG_RL("%s(): frag needed\n", __func__);
 		goto tx_error;
 	}
@@ -1145,9 +1148,9 @@ ip_vs_bypass_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-      tx_error_icmp:
+ tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+ tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -1158,15 +1161,15 @@ int
 ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		     struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;	/* Route to the other host */
-	struct ipv6hdr *iph = ipv6_hdr(skb);
-	int mtu;
+	struct rt6_info *rt;			/* Route to the other host */
+	struct ipv6hdr  *iph = ipv6_hdr(skb);
+	int    mtu;
 	struct flowi fl = {
 		.oif = 0,
 		.nl_u = {
-			 .ip6_u = {
-				   .daddr = iph->daddr,
-				   .saddr = {.s6_addr32 = {0, 0, 0, 0}},}},
+			.ip6_u = {
+				.daddr = iph->daddr,
+				.saddr = { .s6_addr32 = {0, 0, 0, 0} }, } },
 	};
 
 	EnterFunction(10);
@@ -1210,9 +1213,9 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-      tx_error_icmp:
+ tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+ tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -1264,7 +1267,7 @@ int
 ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	       struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;	/* Route to the other host */
+	struct rtable *rt;		/* Route to the other host */
 	int mtu;
 	struct iphdr *iph = ip_hdr(skb);
 
@@ -1273,7 +1276,7 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	/* check if it is a connection of no-client-port */
 	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
 		__be16 _pt, *p;
-		p = skb_header_pointer(skb, iph->ihl * 4, sizeof(_pt), &_pt);
+		p = skb_header_pointer(skb, iph->ihl*4, sizeof(_pt), &_pt);
 		if (p == NULL)
 			goto tx_error;
 		ip_vs_conn_fill_cport(cp, *p);
@@ -1288,7 +1291,7 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
 		ip_rt_put(rt);
 		IP_VS_INC_ESTATS(ip_vs_esmib, XMIT_UNEXPECTED_MTU);
-		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
 		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
 				 "ip_vs_nat_xmit(): frag needed for");
 		goto tx_error;
@@ -1325,13 +1328,13 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-      tx_error_icmp:
+  tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+  tx_error:
 	LeaveFunction(10);
 	kfree_skb(skb);
 	return NF_STOLEN;
-      tx_error_put:
+  tx_error_put:
 	ip_rt_put(rt);
 	goto tx_error;
 }
@@ -1341,7 +1344,7 @@ int
 ip_vs_nat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		  struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;	/* Route to the other host */
+	struct rt6_info *rt;		/* Route to the other host */
 	int mtu;
 
 	EnterFunction(10);
@@ -1402,13 +1405,13 @@ ip_vs_nat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-      tx_error_icmp:
+tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+tx_error:
 	LeaveFunction(10);
 	kfree_skb(skb);
 	return NF_STOLEN;
-      tx_error_put:
+tx_error_put:
 	dst_release(&rt->u.dst);
 	goto tx_error;
 }
@@ -1602,15 +1605,15 @@ int
 ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 		  struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;	/* Route to the other host */
-	struct net_device *tdev;	/* Device to other host */
-	struct iphdr *old_iph = ip_hdr(skb);
-	u8 tos = old_iph->tos;
+	struct rtable *rt;			/* Route to the other host */
+	struct net_device *tdev;		/* Device to other host */
+	struct iphdr  *old_iph = ip_hdr(skb);
+	u8     tos = old_iph->tos;
 	__be16 df = old_iph->frag_off;
 	sk_buff_data_t old_transport_header = skb->transport_header;
-	struct iphdr *iph;	/* Our new IP header */
-	unsigned int max_headroom;	/* The extra header space needed */
-	int mtu;
+	struct iphdr  *iph;			/* Our new IP header */
+	unsigned int max_headroom;		/* The extra header space needed */
+	int    mtu;
 
 	EnterFunction(10);
 
@@ -1640,7 +1643,7 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	if ((old_iph->frag_off & htons(IP_DF))
 	    && mtu < ntohs(old_iph->tot_len)) {
 		IP_VS_INC_ESTATS(ip_vs_esmib, XMIT_UNEXPECTED_MTU);
-		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
 		ip_rt_put(rt);
 		IP_VS_DBG_RL("%s(): frag needed\n", __func__);
 		goto tx_error;
@@ -1654,7 +1657,7 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	if (skb_headroom(skb) < max_headroom
 	    || skb_cloned(skb) || skb_shared(skb)) {
 		struct sk_buff *new_skb =
-		    skb_realloc_headroom(skb, max_headroom);
+			skb_realloc_headroom(skb, max_headroom);
 		if (!new_skb) {
 			ip_rt_put(rt);
 			kfree_skb(skb);
@@ -1680,17 +1683,17 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	skb_dst_set(skb, &rt->u.dst);
 
 	/*
-	 *      Push down and install the IPIP header.
+	 *	Push down and install the IPIP header.
 	 */
-	iph = ip_hdr(skb);
-	iph->version = 4;
-	iph->ihl = sizeof(struct iphdr) >> 2;
-	iph->frag_off = df;
-	iph->protocol = IPPROTO_IPIP;
-	iph->tos = tos;
-	iph->daddr = rt->rt_dst;
-	iph->saddr = rt->rt_src;
-	iph->ttl = old_iph->ttl;
+	iph			=	ip_hdr(skb);
+	iph->version		=	4;
+	iph->ihl		=	sizeof(struct iphdr)>>2;
+	iph->frag_off		=	df;
+	iph->protocol		=	IPPROTO_IPIP;
+	iph->tos		=	tos;
+	iph->daddr		=	rt->rt_dst;
+	iph->saddr		=	rt->rt_src;
+	iph->ttl		=	old_iph->ttl;
 	ip_select_ident(iph, &rt->u.dst, NULL);
 
 	/* Another hack: avoid icmp_send in ip_fragment */
@@ -1702,9 +1705,9 @@ ip_vs_tunnel_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	return NF_STOLEN;
 
-      tx_error_icmp:
+  tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+  tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -1715,13 +1718,13 @@ int
 ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		     struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;	/* Route to the other host */
+	struct rt6_info *rt;		/* Route to the other host */
 	struct net_device *tdev;	/* Device to other host */
-	struct ipv6hdr *old_iph = ipv6_hdr(skb);
+	struct ipv6hdr  *old_iph = ipv6_hdr(skb);
 	sk_buff_data_t old_transport_header = skb->transport_header;
-	struct ipv6hdr *iph;	/* Our new IP header */
+	struct ipv6hdr  *iph;		/* Our new IP header */
 	unsigned int max_headroom;	/* The extra header space needed */
-	int mtu;
+	int    mtu;
 
 	EnterFunction(10);
 
@@ -1764,7 +1767,7 @@ ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	if (skb_headroom(skb) < max_headroom
 	    || skb_cloned(skb) || skb_shared(skb)) {
 		struct sk_buff *new_skb =
-		    skb_realloc_headroom(skb, max_headroom);
+			skb_realloc_headroom(skb, max_headroom);
 		if (!new_skb) {
 			dst_release(&rt->u.dst);
 			kfree_skb(skb);
@@ -1787,18 +1790,18 @@ ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	skb_dst_set(skb, &rt->u.dst);
 
 	/*
-	 *      Push down and install the IPIP header.
+	 *	Push down and install the IPIP header.
 	 */
-	iph = ipv6_hdr(skb);
-	iph->version = 6;
-	iph->nexthdr = IPPROTO_IPV6;
-	iph->payload_len = old_iph->payload_len;
+	iph			=	ipv6_hdr(skb);
+	iph->version		=	6;
+	iph->nexthdr		=	IPPROTO_IPV6;
+	iph->payload_len	=	old_iph->payload_len;
 	be16_add_cpu(&iph->payload_len, sizeof(*old_iph));
-	iph->priority = old_iph->priority;
+	iph->priority		=	old_iph->priority;
 	memset(&iph->flow_lbl, 0, sizeof(iph->flow_lbl));
-	iph->daddr = rt->rt6i_dst.addr;
-	iph->saddr = cp->vaddr.in6;	/* rt->rt6i_src.addr; */
-	iph->hop_limit = old_iph->hop_limit;
+	iph->daddr		=	rt->rt6i_dst.addr;
+	iph->saddr		=	cp->vaddr.in6; /* rt->rt6i_src.addr; */
+	iph->hop_limit		=	old_iph->hop_limit;
 
 	/* Another hack: avoid icmp_send in ip_fragment */
 	skb->local_df = 1;
@@ -1809,14 +1812,15 @@ ip_vs_tunnel_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	return NF_STOLEN;
 
-      tx_error_icmp:
+tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
 }
 #endif
+
 
 /*
  *      Direct Routing transmitter
@@ -1826,9 +1830,9 @@ int
 ip_vs_dr_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	      struct ip_vs_protocol *pp)
 {
-	struct rtable *rt;	/* Route to the other host */
-	struct iphdr *iph = ip_hdr(skb);
-	int mtu;
+	struct rtable *rt;			/* Route to the other host */
+	struct iphdr  *iph = ip_hdr(skb);
+	int    mtu;
 
 	EnterFunction(10);
 
@@ -1839,7 +1843,7 @@ ip_vs_dr_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	mtu = dst_mtu(&rt->u.dst);
 	if ((iph->frag_off & htons(IP_DF)) && skb->len > mtu) {
 		IP_VS_INC_ESTATS(ip_vs_esmib, XMIT_UNEXPECTED_MTU);
-		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		icmp_send(skb, ICMP_DEST_UNREACH,ICMP_FRAG_NEEDED, htonl(mtu));
 		ip_rt_put(rt);
 		IP_VS_DBG_RL("%s(): frag needed\n", __func__);
 		goto tx_error;
@@ -1867,9 +1871,9 @@ ip_vs_dr_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-      tx_error_icmp:
+  tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+  tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
@@ -1880,8 +1884,8 @@ int
 ip_vs_dr_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 		 struct ip_vs_protocol *pp)
 {
-	struct rt6_info *rt;	/* Route to the other host */
-	int mtu;
+	struct rt6_info *rt;			/* Route to the other host */
+	int    mtu;
 
 	EnterFunction(10);
 
@@ -1921,14 +1925,15 @@ ip_vs_dr_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	LeaveFunction(10);
 	return NF_STOLEN;
 
-      tx_error_icmp:
+tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+tx_error:
 	kfree_skb(skb);
 	LeaveFunction(10);
 	return NF_STOLEN;
 }
 #endif
+
 
 /*
  *	ICMP packet transmitter
@@ -1938,7 +1943,7 @@ int
 ip_vs_icmp_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 		struct ip_vs_protocol *pp, int offset)
 {
-	struct rtable *rt;	/* Route to the other host */
+	struct rtable	*rt;	/* Route to the other host */
 	int mtu;
 	int rc;
 
@@ -1996,15 +2001,15 @@ ip_vs_icmp_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 	rc = NF_STOLEN;
 	goto out;
 
-      tx_error_icmp:
+  tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+  tx_error:
 	dev_kfree_skb(skb);
 	rc = NF_STOLEN;
-      out:
+  out:
 	LeaveFunction(10);
 	return rc;
-      tx_error_put:
+  tx_error_put:
 	ip_rt_put(rt);
 	goto tx_error;
 }
@@ -2012,9 +2017,9 @@ ip_vs_icmp_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
 #ifdef CONFIG_IP_VS_IPV6
 int
 ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
-		   struct ip_vs_protocol *pp, int offset)
+		struct ip_vs_protocol *pp, int offset)
 {
-	struct rt6_info *rt;	/* Route to the other host */
+	struct rt6_info	*rt;	/* Route to the other host */
 	int mtu;
 	int rc;
 
@@ -2073,15 +2078,15 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 	rc = NF_STOLEN;
 	goto out;
 
-      tx_error_icmp:
+tx_error_icmp:
 	dst_link_failure(skb);
-      tx_error:
+tx_error:
 	dev_kfree_skb(skb);
 	rc = NF_STOLEN;
-      out:
+out:
 	LeaveFunction(10);
 	return rc;
-      tx_error_put:
+tx_error_put:
 	dst_release(&rt->u.dst);
 	goto tx_error;
 }

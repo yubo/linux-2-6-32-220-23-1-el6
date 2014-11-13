@@ -38,30 +38,37 @@
 
 #include <net/ip_vs.h>
 
+
 #define SERVER_STRING "227 Entering Passive Mode ("
 #define CLIENT_STRING "PORT "
+
 
 /*
  * List of ports (up to IP_VS_APP_MAX_PORTS) to be handled by helper
  * First port is set to the default port.
  */
-static unsigned short ports[IP_VS_APP_MAX_PORTS] = { 21, 0 };
-
+static unsigned short ports[IP_VS_APP_MAX_PORTS] = {21, 0};
 module_param_array(ports, ushort, NULL, 0);
 MODULE_PARM_DESC(ports, "Ports to monitor for FTP control commands");
+
 
 /*	Dummy variable */
 static int ip_vs_ftp_pasv;
 
-static int ip_vs_ftp_init_conn(struct ip_vs_app *app, struct ip_vs_conn *cp)
+
+static int
+ip_vs_ftp_init_conn(struct ip_vs_app *app, struct ip_vs_conn *cp)
 {
 	return 0;
 }
 
-static int ip_vs_ftp_done_conn(struct ip_vs_app *app, struct ip_vs_conn *cp)
+
+static int
+ip_vs_ftp_done_conn(struct ip_vs_app *app, struct ip_vs_conn *cp)
 {
 	return 0;
 }
+
 
 /*
  * Get <addr,port> from the string "xxx.xxx.xxx.xxx,ppp,ppp", started
@@ -70,7 +77,7 @@ static int ip_vs_ftp_done_conn(struct ip_vs_app *app, struct ip_vs_conn *cp)
  */
 static int ip_vs_ftp_get_addrport(char *data, char *data_limit,
 				  const char *pattern, size_t plen, char term,
-				  __be32 * addr, __be16 * port,
+				  __be32 *addr, __be16 *port,
 				  char **start, char **end)
 {
 	unsigned char p[6];
@@ -98,7 +105,7 @@ static int ip_vs_ftp_get_addrport(char *data, char *data_limit,
 	memset(p, 0, sizeof(p));
 	for (data = *start; data != *end; data++) {
 		if (*data >= '0' && *data <= '9') {
-			p[i] = p[i] * 10 + *data - '0';
+			p[i] = p[i]*10 + *data - '0';
 		} else if (*data == ',' && i < 5) {
 			i++;
 		} else {
@@ -110,10 +117,11 @@ static int ip_vs_ftp_get_addrport(char *data, char *data_limit,
 	if (i != 5)
 		return -1;
 
-	*addr = get_unaligned((__be32 *) p);
-	*port = get_unaligned((__be16 *) (p + 4));
+	*addr = get_unaligned((__be32 *)p);
+	*port = get_unaligned((__be16 *)(p + 4));
 	return 1;
 }
+
 
 /*
  * Look at outgoing ftp packets to catch the response to a PASV command
@@ -162,14 +170,15 @@ static int ip_vs_ftp_out(struct ip_vs_app *app, struct ip_vs_conn *cp,
 
 	if (cp->app_data == &ip_vs_ftp_pasv) {
 		iph = ip_hdr(skb);
-		th = (struct tcphdr *)&(((char *)iph)[iph->ihl * 4]);
+		th = (struct tcphdr *)&(((char *)iph)[iph->ihl*4]);
 		data = (char *)th + (th->doff << 2);
 		data_limit = skb_tail_pointer(skb);
 
 		if (ip_vs_ftp_get_addrport(data, data_limit,
 					   SERVER_STRING,
-					   sizeof(SERVER_STRING) - 1, ')',
-					   &from.ip, &port, &start, &end) != 1)
+					   sizeof(SERVER_STRING)-1, ')',
+					   &from.ip, &port,
+					   &start, &end) != 1)
 			return 1;
 
 		IP_VS_DBG(7, "PASV response (%pI4:%d) -> %pI4:%d detected\n",
@@ -200,13 +209,13 @@ static int ip_vs_ftp_out(struct ip_vs_app *app, struct ip_vs_conn *cp,
 		from.ip = n_cp->vaddr.ip;
 		port = n_cp->vport;
 		sprintf(buf, "%d,%d,%d,%d,%d,%d", NIPQUAD(from.ip),
-			(ntohs(port) >> 8) & 255, ntohs(port) & 255);
+			(ntohs(port)>>8)&255, ntohs(port)&255);
 		buf_len = strlen(buf);
 
 		/*
 		 * Calculate required delta-offset to keep TCP happy
 		 */
-		*diff = buf_len - (end - start);
+		*diff = buf_len - (end-start);
 
 		if (*diff == 0) {
 			/* simply replace it with new passive address */
@@ -214,7 +223,7 @@ static int ip_vs_ftp_out(struct ip_vs_app *app, struct ip_vs_conn *cp,
 			ret = 1;
 		} else {
 			ret = !ip_vs_skb_replace(skb, GFP_ATOMIC, start,
-						 end - start, buf, buf_len);
+					  end-start, buf, buf_len);
 		}
 
 		cp->app_data = NULL;
@@ -225,7 +234,8 @@ static int ip_vs_ftp_out(struct ip_vs_app *app, struct ip_vs_conn *cp,
 	return 1;
 }
 
-/*/
+
+/*
  * Look at incoming ftp packets to catch the PASV/PORT command
  * (outside-to-inside).
  *
@@ -271,7 +281,7 @@ static int ip_vs_ftp_in(struct ip_vs_app *app, struct ip_vs_conn *cp,
 	 * Detecting whether it is passive
 	 */
 	iph = ip_hdr(skb);
-	th = (struct tcphdr *)&(((char *)iph)[iph->ihl * 4]);
+	th = (struct tcphdr *)&(((char *)iph)[iph->ihl*4]);
 
 	/* Since there may be OPTIONS in the TCP packet and the HLEN is
 	   the length of the header in 32-bit multiples, it is accurate
@@ -283,7 +293,8 @@ static int ip_vs_ftp_in(struct ip_vs_app *app, struct ip_vs_conn *cp,
 		if (strnicmp(data, "PASV\r\n", 6) == 0) {
 			/* Passive mode on */
 			IP_VS_DBG(7, "got PASV at %td of %td\n",
-				  data - data_start, data_limit - data_start);
+				  data - data_start,
+				  data_limit - data_start);
 			cp->app_data = &ip_vs_ftp_pasv;
 			return 1;
 		}
@@ -298,8 +309,9 @@ static int ip_vs_ftp_in(struct ip_vs_app *app, struct ip_vs_conn *cp,
 	 * connection.
 	 */
 	if (ip_vs_ftp_get_addrport(data_start, data_limit,
-				   CLIENT_STRING, sizeof(CLIENT_STRING) - 1,
-				   '\r', &to.ip, &port, &start, &end) != 1)
+				   CLIENT_STRING, sizeof(CLIENT_STRING)-1,
+				   '\r', &to.ip, &port,
+				   &start, &end) != 1)
 		return 1;
 
 	IP_VS_DBG(7, "PORT %pI4:%d detected\n", &to.ip, ntohs(port));
@@ -332,7 +344,7 @@ static int ip_vs_ftp_in(struct ip_vs_app *app, struct ip_vs_conn *cp,
 	}
 
 	/*
-	 *      Move tunnel to listen state
+	 *	Move tunnel to listen state
 	 */
 	ip_vs_tcp_conn_listen(n_cp);
 	ip_vs_conn_put(n_cp);
@@ -340,19 +352,21 @@ static int ip_vs_ftp_in(struct ip_vs_app *app, struct ip_vs_conn *cp,
 	return 1;
 }
 
+
 static struct ip_vs_app ip_vs_ftp = {
-	.name = "ftp",
-	.type = IP_VS_APP_TYPE_FTP,
-	.protocol = IPPROTO_TCP,
-	.module = THIS_MODULE,
-	.incs_list = LIST_HEAD_INIT(ip_vs_ftp.incs_list),
-	.init_conn = ip_vs_ftp_init_conn,
-	.done_conn = ip_vs_ftp_done_conn,
-	.bind_conn = NULL,
-	.unbind_conn = NULL,
-	.pkt_out = ip_vs_ftp_out,
-	.pkt_in = ip_vs_ftp_in,
+	.name =		"ftp",
+	.type =		IP_VS_APP_TYPE_FTP,
+	.protocol =	IPPROTO_TCP,
+	.module =	THIS_MODULE,
+	.incs_list =	LIST_HEAD_INIT(ip_vs_ftp.incs_list),
+	.init_conn =	ip_vs_ftp_init_conn,
+	.done_conn =	ip_vs_ftp_done_conn,
+	.bind_conn =	NULL,
+	.unbind_conn =	NULL,
+	.pkt_out =	ip_vs_ftp_out,
+	.pkt_in =	ip_vs_ftp_in,
 };
+
 
 /*
  *	ip_vs_ftp initialization
@@ -366,7 +380,7 @@ static int __init ip_vs_ftp_init(void)
 	if (ret)
 		return ret;
 
-	for (i = 0; i < IP_VS_APP_MAX_PORTS; i++) {
+	for (i=0; i<IP_VS_APP_MAX_PORTS; i++) {
 		if (!ports[i])
 			continue;
 		ret = register_ip_vs_app_inc(app, app->protocol, ports[i]);
@@ -382,6 +396,7 @@ static int __init ip_vs_ftp_init(void)
 	return ret;
 }
 
+
 /*
  *	ip_vs_ftp finish.
  */
@@ -389,6 +404,7 @@ static void __exit ip_vs_ftp_exit(void)
 {
 	unregister_ip_vs_app(&ip_vs_ftp);
 }
+
 
 module_init(ip_vs_ftp_init);
 module_exit(ip_vs_ftp_exit);

@@ -43,7 +43,9 @@
 
 #include <net/ip_vs.h>
 
-static inline unsigned int ip_vs_sed_dest_overhead(struct ip_vs_dest *dest)
+
+static inline unsigned int
+ip_vs_sed_dest_overhead(struct ip_vs_dest *dest)
 {
 	/*
 	 * We only use the active connection number in the cost
@@ -52,11 +54,12 @@ static inline unsigned int ip_vs_sed_dest_overhead(struct ip_vs_dest *dest)
 	return atomic_read(&dest->activeconns) + 1;
 }
 
+
 /*
  *	Weighted Least Connection scheduling
  */
-static struct ip_vs_dest *ip_vs_sed_schedule(struct ip_vs_service *svc,
-					     const struct sk_buff *skb)
+static struct ip_vs_dest *
+ip_vs_sed_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 {
 	struct ip_vs_dest *dest, *least;
 	unsigned int loh, doh;
@@ -65,11 +68,11 @@ static struct ip_vs_dest *ip_vs_sed_schedule(struct ip_vs_service *svc,
 
 	/*
 	 * We calculate the load of each dest server as follows:
-	 *      (server expected overhead) / dest->weight
+	 *	(server expected overhead) / dest->weight
 	 *
 	 * Remember -- no floats in kernel mode!!!
 	 * The comparison of h1*w2 > h2*w1 is equivalent to that of
-	 *                h1/w1 > h2/w2
+	 *		  h1/w1 > h2/w2
 	 * if every weight is larger than zero.
 	 *
 	 * The server with weight=0 is quiesced and will not receive any
@@ -90,7 +93,7 @@ static struct ip_vs_dest *ip_vs_sed_schedule(struct ip_vs_service *svc,
 	/*
 	 *    Find the destination with the least load.
 	 */
-      nextstage:
+  nextstage:
 	list_for_each_entry_continue(dest, &svc->destinations, n_list) {
 		if (dest->flags & IP_VS_DEST_F_OVERLOAD)
 			continue;
@@ -112,13 +115,16 @@ static struct ip_vs_dest *ip_vs_sed_schedule(struct ip_vs_service *svc,
 	return least;
 }
 
-static struct ip_vs_scheduler ip_vs_sed_scheduler = {
-	.name = "sed",
-	.refcnt = ATOMIC_INIT(0),
-	.module = THIS_MODULE,
-	.n_list = LIST_HEAD_INIT(ip_vs_sed_scheduler.n_list),
-	.schedule = ip_vs_sed_schedule,
+
+static struct ip_vs_scheduler ip_vs_sed_scheduler =
+{
+	.name =			"sed",
+	.refcnt =		ATOMIC_INIT(0),
+	.module =		THIS_MODULE,
+	.n_list =		LIST_HEAD_INIT(ip_vs_sed_scheduler.n_list),
+	.schedule =		ip_vs_sed_schedule,
 };
+
 
 static int __init ip_vs_sed_init(void)
 {

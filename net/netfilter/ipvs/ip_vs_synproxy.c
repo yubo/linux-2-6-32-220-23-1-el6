@@ -148,6 +148,7 @@ syn_proxy_reuse_skb(int af, struct sk_buff *skb, struct ip_vs_synproxy_opt *opt)
 	unsigned short tmpport;
 	unsigned int tcphoff;
 	struct tcphdr *th;
+	af &= ~IP_VS_CONN_F_DSNAT;
 
 #ifdef CONFIG_IP_VS_IPV6
 	if (af == AF_INET6)
@@ -541,6 +542,9 @@ ip_vs_synproxy_ack_rcv(int af, struct sk_buff *skb, struct tcphdr *th,
 	struct ip_vs_synproxy_opt opt;
 	struct ip_vs_service *svc;
 	int res_cookie_check;
+	int dsnat;
+	dsnat = af & IP_VS_CONN_F_DSNAT;
+	af &= ~IP_VS_CONN_F_DSNAT;
 
 	/*
 	 * Don't check svc syn-proxy flag, as it may
@@ -548,7 +552,7 @@ ip_vs_synproxy_ack_rcv(int af, struct sk_buff *skb, struct tcphdr *th,
 	 */
 	if (!th->syn && th->ack && !th->rst && !th->fin &&
 	    (svc =
-	     ip_vs_service_get(af, skb->mark, iph->protocol, &iph->daddr,
+	     ip_vs_service_get(af|dsnat, skb->mark, iph->protocol, &iph->daddr,
 			       th->dest))) {
 		if (ip_vs_todrop()) {
 			/*
@@ -921,6 +925,7 @@ ip_vs_synproxy_reuse_conn(int af, struct sk_buff *skb,
 	struct ip_vs_synproxy_opt opt;
 	int res_cookie_check;
 	u32 tcp_conn_reuse_states = 0;
+	af &= ~IP_VS_CONN_F_DSNAT;
 
 	th = skb_header_pointer(skb, iph->len, sizeof(_tcph), &_tcph);
 	if (unlikely(NULL == th)) {
